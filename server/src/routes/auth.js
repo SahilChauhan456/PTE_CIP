@@ -1,96 +1,112 @@
-// Demo persona login → JWT.
+// Google OAuth login → app JWT. Only emails present in the employees table may sign in.
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const { query } = require('../db');
 const { JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Demo persona cards for the login picker (title = access level, subtitle = job · dept).
-const DEMO_PERSONAS = [
-  { title: 'Executive Viewer', full_name: 'Rahul Sharma', email: 'rahul.sharma@ptecip.local', subtitle: 'Executive Director · Powertrain Engineering' },
-  { title: 'Department Head', full_name: 'Neha Verma', email: 'neha.verma@ptecip.local', subtitle: 'Head, Powertrain · EV Systems' },
-  { title: 'Manager', full_name: 'Shalini Srivastava', email: 'shalini.srivastava@ptecip.local', subtitle: 'Manager · EV Systems' },
-  { title: 'Mentor', full_name: 'Gurpreet Singh', email: 'gurpreet.singh@ptecip.local', subtitle: 'Powertrain Capability Mentor · EV Systems' },
-  { title: 'SME', full_name: 'Moumita Bose', email: 'moumita.bose@ptecip.local', subtitle: 'Battery Systems SME · Battery Systems' },
-  { title: 'Training Coordinator', full_name: 'Nidhi Tripathi', email: 'nidhi.tripathi@ptecip.local', subtitle: 'Training Coordinator / Admin · Capability Development Cell' },
-  { title: 'Employee', full_name: 'Jasleen Kaur', email: 'jasleen.kaur@ptecip.local', subtitle: 'Validation Engineer · EV Systems' },
-  { title: 'Admin', full_name: 'Nidhi Tripathi', email: 'nidhi.tripathi@ptecip.local', subtitle: 'Platform Admin · Capability Development Cell' },
-];
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-// GET /api/auth/personas — list persona cards for the login screen.
-router.get('/personas', (req, res) => {
-  res.json(DEMO_PERSONAS);
-});
+// Look up an employee by email and aggregate their permission roles.
+// Returns the employee row (with a `roles` array) or null if the email is unknown.
+async function lookupEmployeeByEmail(email) {
+  const { rows } = await query(
+    `SELECT e.id AS employee_id, e.full_name, e.email, e.job_role_id,
+            jr.role_name AS job_role_name, d.name AS department_name,
+            COALESCE(
+              ARRAY_AGG(DISTINCT pr.role_key) FILTER (WHERE pr.role_key IS NOT NULL),
+              '{}'
+            ) AS roles
+     FROM employees e
+     LEFT JOIN job_roles jr ON jr.id = e.job_role_id
+     LEFT JOIN departments d ON d.id = e.department_id
+     LEFT JOIN app_users au ON au.employee_id = e.id
+     LEFT JOIN user_permission_role_map m ON m.user_id = au.id
+     LEFT JOIN app_permission_roles pr ON pr.id = m.permission_role_id
+     WHERE lower(e.email) = lower($1)
+     GROUP BY e.id, e.full_name, e.email, e.job_role_id, jr.role_name, d.name`,
+    [email]
+  );
+  return rows[0] || null;
+}
 
-// POST /api/auth/login  { email, password }
-router.post('/login', async (req, res, next) => {
+// Build the JWT payload + signed token for an employee row.
+function issueToken(emp) {
+  const roles = emp.roles || [];
+  // Pick a primary role for display, in priority order.
+  const priority = [
+    'admin',
+    'executive',
+    'department_head',
+    'manager',
+    'training_coordinator',
+    'sme',
+    'mentor',
+    'employee',
+  ];
+  const primaryRole = priority.find((p) => roles.includes(p)) || 'employee';
+
+  const payload = {
+    employee_id: emp.employee_id,
+    email: emp.email,
+    full_name: emp.full_name,
+    role: primaryRole,
+    roles,
+    job_role_name: emp.job_role_name,
+    department_name: emp.department_name,
+  };
+
+  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
+  return { token, user: payload };
+}
+
+// POST /api/auth/google  { credential }
+// `credential` is the Google ID token returned by Google Identity Services.
+router.post('/google', async (req, res, next) => {
   try {
-    const { email, password } = req.body || {};
-    const demoPassword = process.env.DEMO_PASSWORD || 'demo123';
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const { credential } = req.body || {};
+    if (!credential) {
+      return res.status(400).json({ error: 'Missing Google credential' });
     }
-    if (password !== demoPassword) {
-      return res.status(401).json({ error: 'Invalid demo password' });
+    if (!GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ error: 'Google sign-in is not configured on the server' });
     }
 
-    const { rows } = await query(
-      `SELECT e.id AS employee_id, e.full_name, e.email, e.job_role_id,
-              jr.role_name AS job_role_name, d.name AS department_name,
-              COALESCE(
-                ARRAY_AGG(DISTINCT pr.role_key) FILTER (WHERE pr.role_key IS NOT NULL),
-                '{}'
-              ) AS roles
-       FROM employees e
-       LEFT JOIN job_roles jr ON jr.id = e.job_role_id
-       LEFT JOIN departments d ON d.id = e.department_id
-       LEFT JOIN app_users au ON au.employee_id = e.id
-       LEFT JOIN user_permission_role_map m ON m.user_id = au.id
-       LEFT JOIN app_permission_roles pr ON pr.id = m.permission_role_id
-       WHERE lower(e.email) = lower($1)
-       GROUP BY e.id, e.full_name, e.email, e.job_role_id, jr.role_name, d.name`,
+    // Verify the ID token with Google. Throws if signature/audience/expiry are invalid.
+    let googlePayload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_ID,
+      });
+      googlePayload = ticket.getPayload();
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid Google credential' });
+    }
+
+    const email = googlePayload && googlePayload.email;
+    if (!email || !googlePayload.email_verified) {
+      return res.status(401).json({ error: 'Google account email is not verified' });
+    }
+
+    // Email-must-exist gate: only known employees may sign in.
+    const emp = await lookupEmployeeByEmail(email);
+    if (!emp) {
+      return res.status(403).json({ error: 'This Google account is not authorized for PTE CIP' });
+    }
+
+    const { token, user } = issueToken(emp);
+
+    // Best-effort: record login + provider (ignore failure).
+    query(
+      "UPDATE app_users SET last_login_at = NOW(), auth_provider = 'Google' WHERE lower(email) = lower($1)",
       [email]
-    );
+    ).catch(() => {});
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'No employee found for that email' });
-    }
-
-    const emp = rows[0];
-    const roles = emp.roles || [];
-    // Pick a primary role for display, in priority order.
-    const priority = [
-      'admin',
-      'executive',
-      'department_head',
-      'manager',
-      'training_coordinator',
-      'sme',
-      'mentor',
-      'employee',
-    ];
-    const primaryRole = priority.find((p) => roles.includes(p)) || 'employee';
-
-    const payload = {
-      employee_id: emp.employee_id,
-      email: emp.email,
-      full_name: emp.full_name,
-      role: primaryRole,
-      roles,
-      job_role_name: emp.job_role_name,
-      department_name: emp.department_name,
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
-
-    // Best-effort: record last login (ignore failure).
-    query('UPDATE app_users SET last_login_at = NOW() WHERE lower(email) = lower($1)', [email]).catch(
-      () => {}
-    );
-
-    res.json({ token, user: payload });
+    res.json({ token, user });
   } catch (err) {
     next(err);
   }

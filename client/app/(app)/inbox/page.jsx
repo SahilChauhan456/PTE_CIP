@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
+import Link from 'next/link';
 import useSWR, { mutate } from 'swr';
-import { Circle, CheckCircle2 } from 'lucide-react';
+import { Circle, CheckCircle2, Check, X } from 'lucide-react';
 import { fetcher, api } from '@/lib/api';
 import { PageHeader, Card, Skeleton, ErrorState, EmptyState, Badge } from '@/components/ui';
 import { formatDate, statusClasses } from '@/lib/ui';
@@ -9,11 +11,34 @@ import { formatDate, statusClasses } from '@/lib/ui';
 export default function InboxPage() {
   const { data, error, isLoading } = useSWR('/inbox', fetcher);
   const { data: approvals } = useSWR('/inbox/approvals', fetcher);
+  const [busyId, setBusyId] = useState(null);
+  const [actionError, setActionError] = useState('');
 
   async function markRead(id) {
     await api.patch(`/inbox/${id}/read`, {});
     mutate('/inbox');
     mutate('/inbox/count');
+  }
+
+  // Approve / reject a profile verification request.
+  async function decide(id, decision) {
+    let comments = null;
+    if (decision === 'Rejected') {
+      comments = window.prompt('Reason for rejecting (optional):', '');
+      if (comments === null) return; // cancelled
+    }
+    setBusyId(id);
+    setActionError('');
+    try {
+      await api.post(`/verification/${id}/decision`, { decision, comments: comments || null });
+      mutate('/inbox/approvals');
+      mutate('/inbox');
+      mutate('/inbox/count');
+    } catch (e) {
+      setActionError(e.message);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   return (
@@ -56,16 +81,52 @@ export default function InboxPage() {
 
         <div>
           <h3 className="mb-3 text-sm font-semibold text-white">Pending Approvals</h3>
+          {actionError ? (
+            <div className="mb-3">
+              <ErrorState error={{ message: actionError }} />
+            </div>
+          ) : null}
           {approvals && approvals.length ? (
             <div className="space-y-2">
               {approvals.map((a) => (
                 <Card key={a.id} className="card-tight">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <p className="text-sm text-white">{a.approval_type}</p>
                     <Badge className={statusClasses(a.status)}>{a.status}</Badge>
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">Requested by {a.requested_by || '—'}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Requested by{' '}
+                    {a.requested_by_id ? (
+                      <Link href={`/employees/${a.requested_by_id}`} className="text-accent-soft hover:underline">
+                        {a.requested_by || 'someone'}
+                      </Link>
+                    ) : (
+                      a.requested_by || '—'
+                    )}
+                  </p>
                   <p className="text-xs text-slate-600">{formatDate(a.requested_at)}</p>
+                  {a.status !== 'Pending' && a.decision_comments ? (
+                    <p className="mt-1 text-xs text-slate-500">“{a.decision_comments}”</p>
+                  ) : null}
+
+                  {a.status === 'Pending' && a.approval_type === 'Profile Verification' ? (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        className="btn-primary px-3 py-1.5 text-xs"
+                        onClick={() => decide(a.id, 'Approved')}
+                        disabled={busyId === a.id}
+                      >
+                        <Check size={14} /> Approve
+                      </button>
+                      <button
+                        className="btn-ghost px-3 py-1.5 text-xs text-bad"
+                        onClick={() => decide(a.id, 'Rejected')}
+                        disabled={busyId === a.id}
+                      >
+                        <X size={14} /> Reject
+                      </button>
+                    </div>
+                  ) : null}
                 </Card>
               ))}
             </div>

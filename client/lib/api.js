@@ -27,10 +27,13 @@ export function clearSession() {
 
 async function request(path, options = {}) {
   const token = getToken();
+  // For file uploads the browser must set its own multipart boundary,
+  // so never force a JSON Content-Type on FormData bodies.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
@@ -58,10 +61,14 @@ export const fetcher = (path) => request(path);
 export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) }),
+  put: (path, body) => request(path, { method: 'PUT', body: JSON.stringify(body) }),
   patch: (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  login: (email, password) =>
-    request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  personas: () => request('/auth/personas'),
+  del: (path) => request(path, { method: 'DELETE' }),
+  // Multipart upload (profile pictures). Pass a FormData instance.
+  upload: (path, formData) => request(path, { method: 'POST', body: formData }),
+  // Google Sign-In: exchange the Google ID token for an app JWT.
+  google: (credential) =>
+    request('/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
 };
 
 export { API_URL };

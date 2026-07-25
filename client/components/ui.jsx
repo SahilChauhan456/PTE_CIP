@@ -15,13 +15,50 @@ export function PageHeader({ title, subtitle, children }) {
   );
 }
 
-export function Avatar({ name, size = 36 }) {
+// Shows the uploaded profile picture when `src` is set, otherwise initials.
+export function Avatar({ name, size = 36, src, className = '' }) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={name || 'Profile picture'}
+        className={`shrink-0 rounded-full object-cover ring-1 ring-line ${className}`}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <div
-      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-soft font-semibold text-white"
+      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-soft font-semibold text-white ${className}`}
       style={{ width: size, height: size, fontSize: size * 0.4 }}
     >
       {initials(name)}
+    </div>
+  );
+}
+
+// Compact metric tile: coloured leading value + label + hint.
+export function StatTile({ value, label, hint, tone = 'accent' }) {
+  const tones = {
+    accent: 'bg-accent/15 text-accent-soft',
+    good: 'bg-good/15 text-good',
+    warn: 'bg-warn/15 text-warn',
+    bad: 'bg-bad/15 text-bad',
+  };
+  return (
+    <div className="card-tight flex items-center gap-3">
+      <span
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+          tones[tone] || tones.accent
+        }`}
+      >
+        {value}
+      </span>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="truncate text-sm font-medium text-white">{hint}</p>
+      </div>
     </div>
   );
 }

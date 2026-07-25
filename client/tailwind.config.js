@@ -27,6 +27,20 @@ module.exports = {
       borderRadius: {
         xl: '0.9rem',
       },
+      keyframes: {
+        float: {
+          '0%, 100%': { transform: 'translate(-50%, -50%)' },
+          '50%': { transform: 'translate(-50%, calc(-50% - 12px))' },
+        },
+        'spin-slow': {
+          from: { transform: 'rotate(0deg)' },
+          to: { transform: 'rotate(360deg)' },
+        },
+      },
+      animation: {
+        float: 'float 7s ease-in-out infinite',
+        'spin-slow': 'spin-slow 60s linear infinite',
+      },
     },
   },
   plugins: [],

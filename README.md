@@ -12,7 +12,8 @@ PostgreSQL database.
 ptecip/
 ├── client/     # Next.js app (JSX + Tailwind)
 ├── server/     # Express API
-├── db/         # 01_schema.sql, 02_seed.sql, 03_demo_queries.sql, 04_mermaid_erd.md
+├── db/         # 01_schema.sql, 02_seed.sql, 03_demo_queries.sql, 04_mermaid_erd.md,
+│              # 05_profile_cv.sql
 └── README.md
 ```
 
@@ -22,14 +23,18 @@ ptecip/
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Open **SQL Editor** and run, in order:
-   1. `db/01_schema.sql` — creates all 57 tables, views, triggers.
+   1. `db/01_schema.sql` — creates all tables, views, triggers.
    2. `db/02_seed.sql` — loads demo data (Indian names, powertrain content).
-   3. (optional) `db/03_demo_queries.sql` — sanity-check the screens' queries.
+   3. `db/05_profile_cv.sql` — profile/CV tables + the verification approval type.
+      Additive and idempotent; safe on an already-seeded database.
+   4. (optional) `db/03_demo_queries.sql` — sanity-check the screens' queries.
 3. Get your connection string: **Project Settings → Database → Connection string →
    "Transaction pooler"**. It looks like:
    ```
    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
    ```
+4. For profile pictures, open **Storage → New bucket**, name it `avatars` and mark
+   it **Public**. Uploads are refused with a clear message until this exists.
 
 ---
 
@@ -44,13 +49,16 @@ npm run dev               # http://localhost:4000
 
 **`server/.env`**
 
-| Variable        | Description                                             |
-| --------------- | ------------------------------------------------------- |
-| `DATABASE_URL`  | Supabase **Transaction pooler** connection string       |
-| `JWT_SECRET`    | Any long random string used to sign demo JWTs           |
-| `DEMO_PASSWORD` | Shared demo login password (default `demo123`)          |
-| `PORT`          | API port (default `4000`)                               |
-| `CLIENT_ORIGIN` | Allowed CORS origin (default `http://localhost:3000`)   |
+| Variable                        | Description                                             |
+| ------------------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`                  | Supabase **Transaction pooler** connection string       |
+| `JWT_SECRET`                    | Any long random string used to sign demo JWTs           |
+| `DEMO_PASSWORD`                 | Shared demo login password (default `demo123`)          |
+| `PORT`                          | API port (default `4000`)                               |
+| `CLIENT_ORIGIN`                 | Allowed CORS origin (default `http://localhost:3000`)   |
+| `SUPABASE_URL`                  | Project URL — **Project Settings → API**                |
+| `SUPABASE_SERVICE_ROLE_KEY`     | `service_role` secret; server-side only, never shipped to the browser |
+| `SUPABASE_STORAGE_BUCKET`       | Public bucket for profile pictures (default `avatars`)  |
 
 Health check: `GET http://localhost:4000/api/health`.
 
@@ -66,5 +74,34 @@ npm run dev                        # http://localhost:3000
 ```
 
 Open http://localhost:3000 → you'll be redirected to `/login`.
+
+---
+
+## 4. Profile / CV and verification
+
+Every signed-in user gets a self-service CV on `/profile` (the same component
+renders read-only for anyone else at `/employees/[id]`).
+
+- **Edit Profile** — headline, professional summary, phone, location, LinkedIn,
+  plus add/edit/remove **experience** and **education** rows. Everything is typed
+  in by hand; there is no CV file upload.
+- **Profile picture** — the only real file upload. Goes to the Supabase Storage
+  bucket; the public URL is saved on `employees.photo_url`.
+- **Add Skill** — search the skill library or type a skill that doesn't exist yet
+  (it gets created), then set your own level 1–5. Stored as an
+  `employee_skill_assignments` link plus a `Self` row in `skill_assessments`, so
+  the Skills Passport and `v_employee_skill_matrix` pick it up unchanged.
+  A skill a manager or mentor has already assessed can't be removed from here.
+- **Request Verification** — search for *anyone* in the directory and send them a
+  request. It becomes an `approvals` row (`Profile Verification`) plus an inbox
+  item for them. They **Approve** or **Reject** from *Inbox → Pending Approvals*;
+  the result is written back as a `Verified` / `Rejected` badge on the profile and
+  a notice in the requester's inbox.
+- Editing any CV detail afterwards drops the profile back to **Not Verified** and
+  cancels a still-pending request, so verification always refers to what was
+  actually reviewed.
+
+**Add Employee** (`/employees`) is open to `admin`, `executive` and
+`department_head`.
 
 ---

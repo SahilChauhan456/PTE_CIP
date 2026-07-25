@@ -8,9 +8,12 @@ import { fetcher, api } from '@/lib/api';
 import { PageHeader, Card, Skeleton, ErrorState, EmptyState, Avatar } from '@/components/ui';
 import { useAuth } from '@/components/AuthProvider';
 
+// Roles that can onboard people (mirrors the server-side gate).
+const MANAGE_ROLES = ['admin', 'executive', 'department_head'];
+
 export default function EmployeesPage() {
   const { user } = useAuth();
-  const isAdmin = (user?.roles || []).includes('admin');
+  const canManage = (user?.roles || []).some((r) => MANAGE_ROLES.includes(r));
 
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -18,12 +21,15 @@ export default function EmployeesPage() {
   const key = `/employees${search ? `?search=${encodeURIComponent(search)}` : ''}`;
   const { data, error, isLoading } = useSWR(key, fetcher);
 
-  // Feature is admin-only.
-  if (!isAdmin) {
+  // Directory + onboarding is limited to the top-level roles.
+  if (!canManage) {
     return (
       <div>
         <PageHeader title="Employees" />
-        <EmptyState title="Restricted" hint="Employee management is available to administrators only." />
+        <EmptyState
+          title="Restricted"
+          hint="Employee management is available to admins, executives and department heads."
+        />
       </div>
     );
   }
@@ -65,7 +71,7 @@ export default function EmployeesPage() {
                 <tr key={e.id} className="hover:bg-ink-700/40">
                   <td className="td">
                     <div className="flex items-center gap-2">
-                      <Avatar name={e.full_name} size={30} />
+                      <Avatar name={e.full_name} src={e.photo_url} size={30} />
                       <Link href={`/employees/${e.id}`} className="font-medium text-white hover:text-accent-soft">
                         {e.full_name}
                       </Link>
