@@ -2,43 +2,34 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Zap, Loader2 } from 'lucide-react';
+import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
+import { Zap } from 'lucide-react';
 import { api, setSession, getToken } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
-import { initials } from '@/lib/ui';
 
-// Shared demo password (checked server-side). One-click persona login uses it.
-const DEMO_PASSWORD = 'demo123';
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 export default function LoginPage() {
   const router = useRouter();
   const { setUser } = useAuth();
-  const [personas, setPersonas] = useState([]);
-  const [pending, setPending] = useState(null); // email currently signing in
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (getToken()) {
       router.replace('/dashboard');
-      return;
     }
-    api
-      .personas()
-      .then(setPersonas)
-      .catch(() => setError('Could not reach the API. Is the server running on port 4000?'));
   }, [router]);
 
-  async function signIn(persona) {
+  async function handleGoogle(credential) {
     setError('');
-    setPending(persona.title + persona.email);
     try {
-      const { token, user } = await api.login(persona.email, DEMO_PASSWORD);
+      const { token, user } = await api.google(credential);
       setSession(token, user);
       setUser(user);
       router.replace('/dashboard');
     } catch (err) {
-      setError(err.message || 'Login failed');
-      setPending(null);
+      // 403 = email not in the employees table; other codes = auth/config errors.
+      setError(err.message || 'Sign-in failed');
     }
   }
 
@@ -62,57 +53,47 @@ export default function LoginPage() {
           </p>
         </div>
         <p className="mt-8 max-w-xs text-xs leading-relaxed text-slate-600">
-          Demo authentication is role-based and SSO-ready for Supabase Auth, SAML, Entra ID and
-          Google Workspace.
+          Sign in with your Google account. Access is restricted to registered employees.
         </p>
       </div>
 
-      {/* Right persona grid */}
-      <div className="p-6 lg:p-10">
-        <div className="mb-5">
-          <h1 className="text-lg font-semibold text-white">Choose a demo persona</h1>
-          <p className="text-sm text-slate-500">Click any card to sign in — role-based access applies.</p>
-        </div>
-
-        {error ? (
-          <div className="mb-4 rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">{error}</div>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {personas.map((p) => {
-            const busy = pending === p.title + p.email;
-            const anyPending = pending !== null;
-            return (
-              <button
-                key={p.title + p.email}
-                onClick={() => signIn(p)}
-                disabled={anyPending}
-                className={`group flex items-start gap-3 rounded-xl border border-line bg-ink-800 p-4 text-left transition hover:border-accent-soft hover:bg-ink-700/60 disabled:opacity-60 ${
-                  busy ? 'border-accent-soft' : ''
-                }`}
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-soft text-xs font-semibold text-white">
-                  {initials(p.full_name)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-white">{p.title}</p>
-                  <p className="text-sm text-slate-300">{p.full_name}</p>
-                  <p className="mt-1 truncate text-xs text-slate-500">{p.subtitle}</p>
-                </div>
-                {busy ? <Loader2 size={16} className="mt-1 animate-spin text-accent-soft" /> : null}
-              </button>
-            );
-          })}
-        </div>
-
-        {personas.length === 0 && !error ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl bg-ink-800" />
-            ))}
+      {/* Right sign-in panel */}
+      <div className="flex items-center justify-center p-6 lg:p-10">
+        <div className="w-full max-w-sm">
+          <div className="mb-6">
+            <h1 className="text-lg font-semibold text-white">Sign in</h1>
+            <p className="text-sm text-slate-500">
+              Use your registered Google account to continue.
+            </p>
           </div>
-        ) : null}
 
+          {error ? (
+            <div className="mb-4 rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">
+              {error}
+            </div>
+          ) : null}
+
+          {GOOGLE_CLIENT_ID ? (
+            <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+              <div className="flex justify-center">
+                <GoogleLogin
+                  onSuccess={(cred) => handleGoogle(cred.credential)}
+                  onError={() => setError('Google sign-in was cancelled or failed.')}
+                  theme="filled_black"
+                  shape="pill"
+                  size="large"
+                  text="signin_with"
+                />
+              </div>
+            </GoogleOAuthProvider>
+          ) : (
+            <div className="rounded-lg border border-line bg-ink-800 px-3 py-2 text-sm text-slate-400">
+              Google sign-in is not configured. Set{' '}
+              <code className="text-slate-300">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in{' '}
+              <code className="text-slate-300">client/.env.local</code>.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

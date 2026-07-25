@@ -637,7 +637,7 @@ CREATE TABLE IF NOT EXISTS inbox_items (
 
 CREATE TABLE IF NOT EXISTS approvals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  approval_type TEXT CHECK (approval_type IN ('Training Nomination','Certification','Skill Level','Course Publish','Mentor Recommendation')),
+  approval_type TEXT CHECK (approval_type IN ('Training Nomination','Certification','Skill Level','Course Publish','Mentor Recommendation','Profile Verification')),
   requested_by UUID REFERENCES employees(id),
   approver_id UUID REFERENCES employees(id),
   entity_type TEXT NOT NULL,
@@ -677,6 +677,52 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_by UUID REFERENCES employees(id),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- -----------------------------
+-- Employee CV / profile (self-service, manually entered)
+-- -----------------------------
+CREATE TABLE IF NOT EXISTS employee_cv (
+  employee_id UUID PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+  headline TEXT,
+  summary TEXT,
+  phone TEXT,
+  location_text TEXT,
+  linkedin_url TEXT,
+  verification_status TEXT NOT NULL DEFAULT 'Draft'
+    CHECK (verification_status IN ('Draft','Pending','Verified','Rejected')),
+  verified_by UUID REFERENCES employees(id),
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TRIGGER trg_employee_cv_updated_at BEFORE UPDATE ON employee_cv FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS employee_experience (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  organization TEXT,
+  start_date DATE,
+  end_date DATE,
+  description TEXT,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_experience_emp ON employee_experience(employee_id);
+
+CREATE TABLE IF NOT EXISTS employee_education (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  degree TEXT NOT NULL,
+  institution TEXT,
+  field_of_study TEXT,
+  start_year INT,
+  end_year INT,
+  grade TEXT,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_education_emp ON employee_education(employee_id);
 
 -- -----------------------------
 -- Analytics views for SaaS screens

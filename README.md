@@ -47,8 +47,8 @@ npm run dev               # http://localhost:4000
 | Variable        | Description                                             |
 | --------------- | ------------------------------------------------------- |
 | `DATABASE_URL`  | Supabase **Transaction pooler** connection string       |
-| `JWT_SECRET`    | Any long random string used to sign demo JWTs           |
-| `DEMO_PASSWORD` | Shared demo login password (default `demo123`)          |
+| `JWT_SECRET`    | Any long random string used to sign session JWTs        |
+| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Web client ID (Sign in with Google) |
 | `PORT`          | API port (default `4000`)                               |
 | `CLIENT_ORIGIN` | Allowed CORS origin (default `http://localhost:3000`)   |
 
@@ -69,10 +69,15 @@ Open http://localhost:3000 → you'll be redirected to `/login`.
 
 ---
 
-## 4. Demo personas
+## 4. Login (Sign in with Google)
 
-All personas share the password **`demo123`**. The sidebar and data adapt to the
-persona's role.
+Login is via **Sign in with Google**. Only Google accounts whose email exists in
+the `employees` table are allowed in — any other account is rejected. The signed-in
+employee's roles drive what the sidebar and data show.
+
+For local testing, set one of the seed emails below to your own Google address (or
+add an `employees` row with your email), then sign in with that Google account. The
+personas map seed emails to roles:
 
 | Persona              | Email                             | Role                     | Sees                                            |
 | -------------------- | --------------------------------- | ------------------------ | ----------------------------------------------- |
@@ -118,7 +123,7 @@ Additional: `/roles` (role list), `/search`, `/assessments` (capability pipeline
 
 ## API reference (all under `/api`, JWT required except `/auth`)
 
-`POST /auth/login` · `GET /auth/personas` · `GET /dashboard/executive` ·
+`POST /auth/google` · `GET /dashboard/executive` ·
 `GET /skills` `GET /skills/:id` `POST /skills` `GET /skills/categories` `GET /skills/labels` ·
 `GET /roles` `GET /roles/:id` · `GET /employees` `GET /employees/:id/profile` ·
 `GET /training` `GET /training/:id` `POST /training` ·
