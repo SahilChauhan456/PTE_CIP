@@ -1,12 +1,34 @@
-// Employee profile: header, skills passport, recent learning, certifications.
+// Employee profile: header, skills passport, recent learning, certifications,
+// plus self-service CV editing, skills, and profile photo upload.
 const express = require('express');
+const multer = require('multer');
 const { query, pool } = require('../db');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requireSelfOrAdmin } = require('../middleware/auth');
+const { uploadPublicFile } = require('../supabase');
 
 const router = express.Router();
 
-// GET /api/employees/form-options — dropdown data for the Add Employee form (admin).
-router.get('/form-options', requireRole('admin'), async (req, res, next) => {
+// In-memory upload for profile photos (5 MB cap, images only).
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) return cb(null, true);
+    cb(Object.assign(new Error('Only image files are allowed'), { status: 400 }));
+  },
+});
+
+// Roles allowed to add employees: admin plus top-of-hierarchy leaders.
+const CAN_ADD_EMPLOYEE = ['admin', 'executive', 'department_head'];
+
+// Builds a URL-safe unique skill code from a free-text skill name.
+function slugCode(name) {
+  const base = String(name).trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 20);
+  return `${base || 'SKILL'}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+// GET /api/employees/form-options — dropdown data for the Add Employee form.
+router.get('/form-options', requireRole(...CAN_ADD_EMPLOYEE), async (req, res, next) => {
   try {
     const [departments, teams, roles, locations, managers] = await Promise.all([
       query('SELECT id, name FROM departments ORDER BY name'),
@@ -27,8 +49,8 @@ router.get('/form-options', requireRole('admin'), async (req, res, next) => {
   }
 });
 
-// POST /api/employees — admin: create an employee (and, by default, a login account).
-router.post('/', requireRole('admin'), async (req, res, next) => {
+// POST /api/employees — create an employee (and, by default, a login account).
+router.post('/', requireRole(...CAN_ADD_EMPLOYEE), async (req, res, next) => {
   const {
     employee_code,
     full_name,
@@ -134,6 +156,7 @@ router.get('/:id/profile', async (req, res, next) => {
 
     const headerP = query(
       `SELECT e.id, e.full_name, e.email, e.employee_code, e.grade, e.joining_date,
+              e.photo_url,
               jr.role_name AS job_role, d.name AS department, t.name AS team,
               mgr.full_name AS manager_name,
               (SELECT me.full_name FROM mentor_assignments ma
@@ -191,13 +214,38 @@ router.get('/:id/profile', async (req, res, next) => {
       [id]
     );
 
-    const [header, passport, recentLearning, certs, mentorNotes] = await Promise.all([
-      headerP,
-      passportP,
-      recentLearningP,
-      certsP,
-      mentorNotesP,
-    ]);
+    const cvP = query(
+      `SELECT cv.headline, cv.summary, cv.phone, cv.location_text, cv.linkedin_url,
+              cv.verification_status, cv.verified_at, vb.full_name AS verified_by_name
+       FROM employee_cv cv
+       LEFT JOIN employees vb ON vb.id = cv.verified_by
+       WHERE cv.employee_id = $1`,
+      [id]
+    );
+    const experienceP = query(
+      `SELECT id, title, organization, start_date, end_date, description
+       FROM employee_experience WHERE employee_id = $1
+       ORDER BY sort_order, start_date DESC NULLS LAST`,
+      [id]
+    );
+    const educationP = query(
+      `SELECT id, degree, institution, field_of_study, start_year, end_year, grade
+       FROM employee_education WHERE employee_id = $1
+       ORDER BY sort_order, end_year DESC NULLS LAST`,
+      [id]
+    );
+
+    const [header, passport, recentLearning, certs, mentorNotes, cv, experience, education] =
+      await Promise.all([
+        headerP,
+        passportP,
+        recentLearningP,
+        certsP,
+        mentorNotesP,
+        cvP,
+        experienceP,
+        educationP,
+      ]);
 
     if (header.rows.length === 0) {
       return res.status(404).json({ error: 'Employee not found' });
@@ -205,11 +253,248 @@ router.get('/:id/profile', async (req, res, next) => {
 
     res.json({
       header: header.rows[0],
+      cv: cv.rows[0] || { verification_status: 'Draft' },
+      experience: experience.rows,
+      education: education.rows,
       skillsPassport: passport.rows,
       recentLearning: recentLearning.rows,
       certifications: certs.rows,
       mentorNotes: mentorNotes.rows,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Any edit to CV content invalidates a prior verification — send it back to Draft.
+async function resetVerification(runner, employeeId) {
+  await runner(
+    `UPDATE employee_cv
+        SET verification_status = 'Draft', verified_by = NULL, verified_at = NULL
+      WHERE employee_id = $1 AND verification_status IN ('Verified','Pending')`,
+    [employeeId]
+  );
+}
+
+// PATCH /api/employees/:id/cv — upsert the CV core (self or admin).
+router.patch('/:id/cv', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { headline, summary, phone, location_text, linkedin_url } = req.body || {};
+    const { rows } = await query(
+      `INSERT INTO employee_cv (employee_id, headline, summary, phone, location_text, linkedin_url)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (employee_id) DO UPDATE SET
+         headline = EXCLUDED.headline,
+         summary = EXCLUDED.summary,
+         phone = EXCLUDED.phone,
+         location_text = EXCLUDED.location_text,
+         linkedin_url = EXCLUDED.linkedin_url,
+         verification_status = 'Draft',
+         verified_by = NULL,
+         verified_at = NULL
+       RETURNING headline, summary, phone, location_text, linkedin_url, verification_status`,
+      [id, headline || null, summary || null, phone || null, location_text || null, linkedin_url || null]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/employees/:id/experience
+router.post('/:id/experience', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { title, organization, start_date, end_date, description, sort_order } = req.body || {};
+    if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
+    const { rows } = await query(
+      `INSERT INTO employee_experience (employee_id, title, organization, start_date, end_date, description, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,0))
+       RETURNING id, title, organization, start_date, end_date, description`,
+      [id, title.trim(), organization || null, start_date || null, end_date || null, description || null, sort_order]
+    );
+    await resetVerification(query, id);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/employees/:id/experience/:expId
+router.patch('/:id/experience/:expId', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id, expId } = req.params;
+    const { title, organization, start_date, end_date, description } = req.body || {};
+    const { rows } = await query(
+      `UPDATE employee_experience
+          SET title = COALESCE($3, title), organization = $4, start_date = $5,
+              end_date = $6, description = $7
+        WHERE id = $1 AND employee_id = $2
+       RETURNING id, title, organization, start_date, end_date, description`,
+      [expId, id, title || null, organization || null, start_date || null, end_date || null, description || null]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Experience not found' });
+    await resetVerification(query, id);
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/employees/:id/experience/:expId
+router.delete('/:id/experience/:expId', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id, expId } = req.params;
+    await query('DELETE FROM employee_experience WHERE id = $1 AND employee_id = $2', [expId, id]);
+    await resetVerification(query, id);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/employees/:id/education
+router.post('/:id/education', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { degree, institution, field_of_study, start_year, end_year, grade, sort_order } = req.body || {};
+    if (!degree || !degree.trim()) return res.status(400).json({ error: 'degree is required' });
+    const { rows } = await query(
+      `INSERT INTO employee_education (employee_id, degree, institution, field_of_study, start_year, end_year, grade, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,0))
+       RETURNING id, degree, institution, field_of_study, start_year, end_year, grade`,
+      [id, degree.trim(), institution || null, field_of_study || null, start_year || null, end_year || null, grade || null, sort_order]
+    );
+    await resetVerification(query, id);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/employees/:id/education/:eduId
+router.patch('/:id/education/:eduId', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id, eduId } = req.params;
+    const { degree, institution, field_of_study, start_year, end_year, grade } = req.body || {};
+    const { rows } = await query(
+      `UPDATE employee_education
+          SET degree = COALESCE($3, degree), institution = $4, field_of_study = $5,
+              start_year = $6, end_year = $7, grade = $8
+        WHERE id = $1 AND employee_id = $2
+       RETURNING id, degree, institution, field_of_study, start_year, end_year, grade`,
+      [eduId, id, degree || null, institution || null, field_of_study || null, start_year || null, end_year || null, grade || null]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Education not found' });
+    await resetVerification(query, id);
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/employees/:id/education/:eduId
+router.delete('/:id/education/:eduId', requireSelfOrAdmin, async (req, res, next) => {
+  try {
+    const { id, eduId } = req.params;
+    await query('DELETE FROM employee_education WHERE id = $1 AND employee_id = $2', [eduId, id]);
+    await resetVerification(query, id);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/employees/:id/skills — self-declare a skill (pick existing or create new)
+// with a self-assessed level. Body: { skill_id?, skill_name?, self_level }.
+router.post('/:id/skills', requireSelfOrAdmin, async (req, res, next) => {
+  const { id } = req.params;
+  let { skill_id, skill_name, self_level } = req.body || {};
+  const level = Number(self_level);
+  if (!Number.isInteger(level) || level < 1 || level > 5) {
+    return res.status(400).json({ error: 'self_level must be an integer 1-5' });
+  }
+  if (!skill_id && !(skill_name && skill_name.trim())) {
+    return res.status(400).json({ error: 'skill_id or skill_name is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Resolve the skill: use the given id, match an existing name, or create it.
+    if (!skill_id) {
+      const found = await client.query('SELECT id FROM skills WHERE name ILIKE $1 LIMIT 1', [skill_name.trim()]);
+      if (found.rows.length) {
+        skill_id = found.rows[0].id;
+      } else {
+        const created = await client.query(
+          `INSERT INTO skills (code, name) VALUES ($1, $2) RETURNING id`,
+          [slugCode(skill_name), skill_name.trim()]
+        );
+        skill_id = created.rows[0].id;
+      }
+    }
+
+    // Link the skill to the employee (idempotent).
+    await client.query(
+      `INSERT INTO employee_skill_assignments (employee_id, skill_id, assigned_by_employee_id)
+       VALUES ($1, $2, $1) ON CONFLICT (employee_id, skill_id) DO NOTHING`,
+      [id, skill_id]
+    );
+
+    // Record the self assessment (feeds v_employee_skill_matrix).
+    await client.query(
+      `INSERT INTO skill_assessments (employee_id, skill_id, assessor_employee_id, assessor_type, assessed_level, status)
+       VALUES ($1, $2, $1, 'Self', $3, 'Submitted')`,
+      [id, skill_id, level]
+    );
+
+    const skill = await client.query('SELECT id AS skill_id, name AS skill_name FROM skills WHERE id = $1', [skill_id]);
+    await client.query('COMMIT');
+    res.status(201).json({ ...skill.rows[0], self_level: level });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/employees/:id/skills/:skillId — remove a self-declared skill.
+router.delete('/:id/skills/:skillId', requireSelfOrAdmin, async (req, res, next) => {
+  const { id, skillId } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM employee_skill_assignments WHERE employee_id = $1 AND skill_id = $2', [id, skillId]);
+    await client.query(
+      "DELETE FROM skill_assessments WHERE employee_id = $1 AND skill_id = $2 AND assessor_type = 'Self'",
+      [id, skillId]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/employees/:id/photo — upload a profile picture to Supabase Storage.
+router.post('/:id/photo', requireSelfOrAdmin, upload.single('photo'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ error: 'No image uploaded (field name: photo)' });
+
+    const ext = (req.file.mimetype.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    const path = `${id}/avatar-${Date.now()}.${ext}`;
+    const publicUrl = await uploadPublicFile(path, req.file.buffer, req.file.mimetype);
+
+    await query('UPDATE employees SET photo_url = $1 WHERE id = $2', [publicUrl, id]);
+    res.json({ photo_url: publicUrl });
   } catch (err) {
     next(err);
   }

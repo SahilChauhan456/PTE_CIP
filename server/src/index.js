@@ -19,6 +19,7 @@ const roadmapRoutes = require('./routes/roadmap');
 const inboxRoutes = require('./routes/inbox');
 const courseDevRoutes = require('./routes/courseDevelopment');
 const adminRoutes = require('./routes/admin');
+const verificationRoutes = require('./routes/verification');
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use('/api/roadmap', roadmapRoutes);
 app.use('/api/inbox', inboxRoutes);
 app.use('/api/course-development', courseDevRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/verification', verificationRoutes);
 
 // 404 for unknown API routes.
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
