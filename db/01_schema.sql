@@ -648,6 +648,9 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_at TIMESTAMPTZ
 );
 
+CREATE INDEX IF NOT EXISTS idx_approvals_approver_status ON approvals(approver_id, status);
+CREATE INDEX IF NOT EXISTS idx_approvals_entity ON approvals(entity_type, entity_id);
+
 CREATE TABLE IF NOT EXISTS import_batches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   batch_type TEXT CHECK (batch_type IN ('Employee Master','Skill Library','Role Framework','Training History','Assessment Data','Certification Records')),
@@ -679,7 +682,8 @@ CREATE TABLE IF NOT EXISTS system_settings (
 );
 
 -- -----------------------------
--- Employee CV / profile (self-service, manually entered)
+-- Profile / CV (hand-typed by the employee) + verification state.
+-- Mirrored in db/05_profile_cv.sql for already-deployed databases.
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS employee_cv (
   employee_id UUID PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
@@ -708,7 +712,7 @@ CREATE TABLE IF NOT EXISTS employee_experience (
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_employee_experience_emp ON employee_experience(employee_id);
+CREATE INDEX IF NOT EXISTS idx_employee_experience_employee ON employee_experience(employee_id);
 
 CREATE TABLE IF NOT EXISTS employee_education (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -722,7 +726,7 @@ CREATE TABLE IF NOT EXISTS employee_education (
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_employee_education_emp ON employee_education(employee_id);
+CREATE INDEX IF NOT EXISTS idx_employee_education_employee ON employee_education(employee_id);
 
 -- -----------------------------
 -- Analytics views for SaaS screens

@@ -17,6 +17,19 @@ export function formatDate(value) {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "2024-07-01" -> "Jul 2024". Parsed by hand so a UTC date never shifts a month.
+export function formatMonthYear(value) {
+  if (!value) return '';
+  const [y, m] = String(value).slice(0, 10).split('-');
+  if (!y || !m) return '';
+  return `${MONTHS[Number(m) - 1] || ''} ${y}`.trim();
+}
+
+// Capability level names used on the profile (matches skill_level_definitions).
+export const LEVEL_TITLES = ['Not assessed', 'Aware', 'Developing', 'Practitioner', 'Specialist', 'Expert'];
+
 // Status badge palette (Tailwind class strings).
 export function statusClasses(status = '') {
   const s = status.toLowerCase();

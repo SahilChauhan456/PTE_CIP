@@ -10,6 +10,7 @@ import {
   KanbanSquare,
   BadgeCheck,
   Users,
+  UserCircle,
   UserPlus,
   BarChart3,
   Settings,
@@ -17,6 +18,7 @@ import {
 
 // `roles` = permission roles that may see the item. Empty = everyone.
 export const NAV_ITEMS = [
+  { label: 'My Profile', href: '/profile', icon: UserCircle, roles: [] },
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: [] },
   { label: 'Inbox', href: '/inbox', icon: Inbox, roles: [], badge: 'inbox' },
   { label: 'Search', href: '/search', icon: Search, roles: [] },
@@ -37,7 +39,12 @@ export const NAV_ITEMS = [
     icon: Users,
     roles: ['admin', 'mentor', 'sme', 'department_head', 'executive', 'training_coordinator'],
   },
-  { label: 'Employees', href: '/employees', icon: UserPlus, roles: ['admin'] },
+  {
+    label: 'Employees',
+    href: '/employees',
+    icon: UserPlus,
+    roles: ['admin', 'executive', 'department_head'],
+  },
   {
     label: 'Analytics',
     href: '/roadmap',

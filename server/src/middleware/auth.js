@@ -31,15 +31,17 @@ function requireRole(...allowed) {
   };
 }
 
-// Gate for self-service routes: allow the employee editing their own record,
-// or any admin. Expects the employee id in req.params.id.
-function requireSelfOrAdmin(req, res, next) {
-  const roles = (req.user && req.user.roles) || [];
-  const isSelf = req.user && req.user.employee_id === req.params.id;
-  if (isSelf || roles.includes('admin')) {
+// Gate for "my own record" routes: the employee themselves, or an admin.
+// Expects the employee id in req.params[param] (default :id).
+function requireSelfOrAdmin(param = 'id') {
+  return (req, res, next) => {
+    const roles = (req.user && req.user.roles) || [];
+    const isSelf = req.user && req.user.employee_id === req.params[param];
+    if (!isSelf && !roles.includes('admin')) {
+      return res.status(403).json({ error: 'You can only edit your own profile' });
+    }
     return next();
-  }
-  return res.status(403).json({ error: 'You can only edit your own profile' });
+  };
 }
 
 module.exports = { requireAuth, requireRole, requireSelfOrAdmin, JWT_SECRET };
