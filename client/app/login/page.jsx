@@ -18,7 +18,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (getToken()) {
-      router.replace('/dashboard');
+      router.replace('/profile');
     }
   }, [router]);
 
@@ -28,7 +28,8 @@ export default function LoginPage() {
       const { token, user } = await api.google(credential);
       setSession(token, user);
       setUser(user);
-      router.replace('/dashboard');
+      // Land on the user's own profile — their capability record is the entry point.
+      router.replace('/profile');
     } catch (err) {
       // 403 = email not in the employees table; other codes = auth/config errors.
       setError(err.message || 'Sign-in failed');

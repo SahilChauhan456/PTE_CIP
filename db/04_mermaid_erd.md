@@ -18,16 +18,12 @@ erDiagram
   skills ||--o{ employee_skill_assignments : assigned
   employees ||--o{ employee_skill_assignments : owns
 
-  assessment_campaigns ||--o{ assessment_assignments : assigns
-  assessment_campaigns ||--o{ skill_assessments : contains
   employees ||--o{ skill_assessments : assessed_employee
   employees ||--o{ skill_assessments : assessor
   skills ||--o{ skill_assessments : rated_skill
-  skill_assessments ||--o{ skill_evidence : supported_by
 
   employees ||--|| mentor_profiles : mentor_account
   employees ||--|| sme_profiles : sme_account
-  employees ||--|| training_coordinator_profiles : coordinator_account
   mentor_profiles ||--o{ mentor_skill_map : covers
   skills ||--o{ mentor_skill_map : mentored_skill
   employees ||--o{ mentor_assignments : mentor
@@ -37,10 +33,8 @@ erDiagram
   training_courses ||--o{ course_modules : contains
   training_courses ||--o{ course_skill_map : maps_to
   skills ||--o{ course_skill_map : developed_by
-  training_courses ||--o{ training_sessions : scheduled_as
   training_courses ||--o{ training_enrollments : enrolled
   employees ||--o{ training_enrollments : learner
-  training_enrollments ||--o{ training_feedback : receives
   employees ||--o{ learning_plan_items : has_plan
   training_courses ||--o{ learning_plan_items : planned_course
 
@@ -54,9 +48,6 @@ erDiagram
   employees ||--o{ employee_certifications : earns
   certifications ||--o{ employee_certifications : certificate
 
-  surveys ||--o{ survey_questions : has
-  surveys ||--o{ survey_assignments : assigned_to
-  survey_assignments ||--o{ survey_answers : contains
   employees ||--o{ inbox_items : receives
   employees ||--o{ approvals : approves
 ```

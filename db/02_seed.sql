@@ -143,22 +143,6 @@ SELECT au.id, pr.id FROM app_users au JOIN employees e ON e.id=au.employee_id JO
 WHERE e.id IN ('00000000-0000-0000-0000-000000000610','00000000-0000-0000-0000-000000000615')
 ON CONFLICT DO NOTHING;
 
--- Career tracks
-INSERT INTO career_tracks (id, code, name, description) VALUES
-('00000000-0000-0000-0000-000000000801','EV-TRACK','EV Systems Career Track','Pathway from foundation EV engineer to EV systems lead'),
-('00000000-0000-0000-0000-000000000802','DIAG-TRACK','Diagnostics Career Track','Pathway for ECU diagnostics and vehicle network experts'),
-('00000000-0000-0000-0000-000000000803','BAT-TRACK','Battery Analytics Career Track','Pathway for battery SOH and warranty analytics')
-ON CONFLICT (code) DO NOTHING;
-
-INSERT INTO career_track_roles (career_track_id, job_role_id, sequence_order) VALUES
-('00000000-0000-0000-0000-000000000801','00000000-0000-0000-0000-000000000503',1),
-('00000000-0000-0000-0000-000000000801','00000000-0000-0000-0000-000000000504',2),
-('00000000-0000-0000-0000-000000000801','00000000-0000-0000-0000-000000000509',3),
-('00000000-0000-0000-0000-000000000802','00000000-0000-0000-0000-000000000506',1),
-('00000000-0000-0000-0000-000000000802','00000000-0000-0000-0000-000000000508',2),
-('00000000-0000-0000-0000-000000000803','00000000-0000-0000-0000-000000000505',1)
-ON CONFLICT DO NOTHING;
-
 -- Skill categories and skills
 INSERT INTO skill_categories (id, code, name, description) VALUES
 ('00000000-0000-0000-0000-000000000901','MECH','Mechanical Engineering','Mechanical powertrain fundamentals'),
@@ -282,11 +266,6 @@ INSERT INTO sme_profiles (employee_id, expertise_summary, content_development_ca
 ('00000000-0000-0000-0000-000000000609','Clutch thermal modeling and thermal management','1 course per quarter')
 ON CONFLICT (employee_id) DO NOTHING;
 
-INSERT INTO training_coordinator_profiles (employee_id, scope) VALUES
-('00000000-0000-0000-0000-000000000610','Central training governance, calendar and capability reports'),
-('00000000-0000-0000-0000-000000000615','Training volunteer, content consolidation and feedback tracking')
-ON CONFLICT (employee_id) DO NOTHING;
-
 INSERT INTO mentor_skill_map (mentor_id, skill_id, mentor_level, can_certify) VALUES
 ('00000000-0000-0000-0000-000000000604','00000000-0000-0000-0000-000000001002',5,true),
 ('00000000-0000-0000-0000-000000000604','00000000-0000-0000-0000-000000001005',4,false),
@@ -300,8 +279,6 @@ INSERT INTO mentor_skill_map (mentor_id, skill_id, mentor_level, can_certify) VA
 ('00000000-0000-0000-0000-000000000609','00000000-0000-0000-0000-000000001004',5,true),
 ('00000000-0000-0000-0000-000000000609','00000000-0000-0000-0000-000000001008',4,false)
 ON CONFLICT DO NOTHING;
-
-INSERT INTO sme_skill_map (sme_id, skill_id, sme_level, owns_curriculum) SELECT mentor_id, skill_id, mentor_level, true FROM mentor_skill_map WHERE can_certify=true ON CONFLICT DO NOTHING;
 
 -- Training courses
 INSERT INTO training_courses (id, course_code, title, description, course_type, delivery_mode, duration_hours, difficulty, owner_sme_id, coordinator_id, linked_job_role_id, status, post_training_mentoring_days) VALUES
@@ -338,19 +315,13 @@ INSERT INTO course_modules (course_id, module_order, module_title, duration_minu
 ('00000000-0000-0000-0000-000000002003',2,'Warranty Data Analytics Case Study',240)
 ON CONFLICT (course_id, module_order) DO NOTHING;
 
-INSERT INTO training_sessions (id, course_id, session_title, start_datetime, end_datetime, location_text, trainer_id, capacity, status) VALUES
-('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000002001','Automotive Electronics Fundamentals - Batch 1','2026-03-12 10:00:00+05:30','2026-03-12 13:00:00+05:30','Gurugram R&D Auditorium','00000000-0000-0000-0000-000000000606',120,'Completed'),
-('00000000-0000-0000-0000-000000002102','00000000-0000-0000-0000-000000002002','CAN / LIN Practical Diagnostics - Batch 1','2026-04-10 09:30:00+05:30','2026-04-10 17:30:00+05:30','Vehicle Network Lab','00000000-0000-0000-0000-000000000604',40,'Scheduled'),
-('00000000-0000-0000-0000-000000002103','00000000-0000-0000-0000-000000002003','Battery SOH Analytics - Batch 1','2026-05-15 09:30:00+05:30','2026-05-16 17:30:00+05:30','Analytics Room 2','00000000-0000-0000-0000-000000000607',35,'Scheduled')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO training_enrollments (session_id, course_id, employee_id, nominated_by, status, progress_percent, score, completed_at) VALUES
-('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000000603','Completed',100,88,'2026-03-12 13:10:00+05:30'),
-('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000000612','00000000-0000-0000-0000-000000000603','Completed',100,82,'2026-03-12 13:10:00+05:30'),
-('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000000603','Completed',100,75,'2026-03-12 13:10:00+05:30'),
-('00000000-0000-0000-0000-000000002102','00000000-0000-0000-0000-000000002002','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000000603','In Progress',60,NULL,NULL),
-('00000000-0000-0000-0000-000000002102','00000000-0000-0000-0000-000000002002','00000000-0000-0000-0000-000000000612','00000000-0000-0000-0000-000000000603','Approved',0,NULL,NULL),
-('00000000-0000-0000-0000-000000002103','00000000-0000-0000-0000-000000002003','00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000000607','Approved',0,NULL,NULL)
+INSERT INTO training_enrollments (course_id, employee_id, nominated_by, status, progress_percent, score, completed_at) VALUES
+('00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000000603','Completed',100,88,'2026-03-12 13:10:00+05:30'),
+('00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000000612','00000000-0000-0000-0000-000000000603','Completed',100,82,'2026-03-12 13:10:00+05:30'),
+('00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000000603','Completed',100,75,'2026-03-12 13:10:00+05:30'),
+('00000000-0000-0000-0000-000000002002','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000000603','In Progress',60,NULL,NULL),
+('00000000-0000-0000-0000-000000002002','00000000-0000-0000-0000-000000000612','00000000-0000-0000-0000-000000000603','Approved',0,NULL,NULL),
+('00000000-0000-0000-0000-000000002003','00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000000607','Approved',0,NULL,NULL)
 ON CONFLICT (course_id, employee_id) DO NOTHING;
 
 INSERT INTO learning_plan_items (employee_id, course_id, assigned_by, status, priority, progress_percent, due_date, notes) VALUES
@@ -382,61 +353,16 @@ INSERT INTO technical_support_requests (employee_id, mentor_id, skill_id, reques
 ('00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000000605','00000000-0000-0000-0000-000000001007','OBD readiness monitor doubt','Need guidance on OBD readiness monitor interpretation.','Medium','Open')
 ON CONFLICT DO NOTHING;
 
--- Assessment templates, campaign and ratings
-INSERT INTO assessment_templates (id, code, name, assessment_type, description) VALUES
-('00000000-0000-0000-0000-000000002301','SELF-SKILL-V1','Self Skill Assessment','Self','Employee self-rating with evidence and confidence'),
-('00000000-0000-0000-0000-000000002302','MGR-SKILL-V1','Manager Skill Review','Manager','Manager validates employee skill rating'),
-('00000000-0000-0000-0000-000000002303','MENTOR-SKILL-V1','Mentor Technical Validation','Mentor','Mentor validates practical technical capability')
-ON CONFLICT (code) DO NOTHING;
-
-INSERT INTO assessment_questions (template_id, question_order, question_text, question_type, required) VALUES
-('00000000-0000-0000-0000-000000002301',1,'Select your current level for this skill.','Rating',true),
-('00000000-0000-0000-0000-000000002301',2,'Upload or describe evidence of practical application.','Text',true),
-('00000000-0000-0000-0000-000000002302',1,'Validate the employee level based on project performance.','Rating',true),
-('00000000-0000-0000-0000-000000002303',1,'Assess practical application and mentoring observations.','Rating',true)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO assessment_campaigns (id, code, title, description, start_date, due_date, status, created_by) VALUES
-('00000000-0000-0000-0000-000000002401','FY26-PTE-SKILL-REVIEW','FY26 Powertrain Capability Review','Annual powertrain skill self, manager and mentor assessment campaign','2026-01-22','2026-03-31','Active','00000000-0000-0000-0000-000000000610')
-ON CONFLICT (code) DO NOTHING;
-
-INSERT INTO assessment_assignments (campaign_id, employee_id, manager_id, mentor_id, status, self_submitted_at) VALUES
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000000603','00000000-0000-0000-0000-000000000604','Mentor Reviewed','2026-03-05 10:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000612','00000000-0000-0000-0000-000000000603','00000000-0000-0000-0000-000000000604','Manager Reviewed','2026-03-08 11:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000000607','00000000-0000-0000-0000-000000000607','Self Submitted','2026-03-10 12:00:00+05:30')
-ON CONFLICT (campaign_id, employee_id) DO NOTHING;
-
-INSERT INTO skill_assessments (campaign_id, employee_id, skill_id, assessor_employee_id, assessor_type, assessed_level, confidence_level, comments, status, assessed_at) VALUES
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000611','Self',4,4,'Can read CAN logs and identify basic signal issues.','Submitted','2026-03-05 10:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000603','Manager',3,4,'Good progress; needs independent validation exposure.','Approved','2026-03-06 15:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000604','Mentor',4,5,'Can interpret DBC and trace issues with limited guidance.','Approved','2026-03-12 16:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001005','00000000-0000-0000-0000-000000000603','Manager',3,4,'Ready for EV validation projects with support.','Approved','2026-03-06 15:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000603','Manager',2,3,'Needs SOH fundamentals training.','Approved','2026-03-06 15:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000614','Self',3,4,'Can analyze warranty data; need deeper algorithm knowledge.','Submitted','2026-03-10 12:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000607','Mentor',3,4,'Good data orientation; recommend advanced SOH module.','Approved','2026-03-12 14:00:00+05:30'),
-('00000000-0000-0000-0000-000000002401','00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000001007','00000000-0000-0000-0000-000000000603','Manager',3,3,'Needs OBD practice and documentation discipline.','Approved','2026-03-06 15:00:00+05:30')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO skill_evidence (employee_id, skill_id, evidence_type, title, description, validated_by, validation_status) VALUES
-('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','Project Report','CAN Diagnostic Fault Tree','Prepared signal-level diagnostic fault tree for EV bench testing.','00000000-0000-0000-0000-000000000604','Validated'),
-('00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000001003','Test Data','Battery Warranty Data Analysis','Initial SOH pattern analysis for warranty cases.','00000000-0000-0000-0000-000000000607','Pending'),
-('00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000001007','Presentation','OBD Readiness Case Study','Diagnostic case presentation for service issue.','00000000-0000-0000-0000-000000000605','Validated')
-ON CONFLICT DO NOTHING;
-
--- Talent flags
-INSERT INTO talent_flags (id, flag_key, flag_name, description, color) VALUES
-('00000000-0000-0000-0000-000000002501','expert','Expert','Recognized technical expert','#22C55E'),
-('00000000-0000-0000-0000-000000002502','mentor','Mentor','Available as mentor','#3B82F6'),
-('00000000-0000-0000-0000-000000002503','high_potential','High Potential','Emerging talent for future role','#F59E0B'),
-('00000000-0000-0000-0000-000000002504','focus_development','Focus Development','Requires development support','#EF4444'),
-('00000000-0000-0000-0000-000000002505','ready_for_advanced_training','Ready for Advanced Training','Candidate for deeper training','#8B5CF6')
-ON CONFLICT (flag_key) DO NOTHING;
-
-INSERT INTO employee_talent_flags (employee_id, flag_id, skill_id, job_role_id, assigned_by, notes) VALUES
-('00000000-0000-0000-0000-000000000604','00000000-0000-0000-0000-000000002501','00000000-0000-0000-0000-000000001002',NULL,'00000000-0000-0000-0000-000000000602','SME for CAN/LIN communication.'),
-('00000000-0000-0000-0000-000000000607','00000000-0000-0000-0000-000000002501','00000000-0000-0000-0000-000000001003',NULL,'00000000-0000-0000-0000-000000000602','SME for battery SOH.'),
-('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000002503',NULL,'00000000-0000-0000-0000-000000000504','00000000-0000-0000-0000-000000000604','High potential for EV systems validation lead role.'),
-('00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000002504','00000000-0000-0000-0000-000000001001',NULL,'00000000-0000-0000-0000-000000000603','Needs electronics foundation upskilling.')
+-- Skill ratings (self, manager and mentor)
+INSERT INTO skill_assessments (employee_id, skill_id, assessor_employee_id, assessor_type, assessed_level, confidence_level, comments, status, assessed_at) VALUES
+('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000611','Self',4,4,'Can read CAN logs and identify basic signal issues.','Submitted','2026-03-05 10:00:00+05:30'),
+('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000603','Manager',3,4,'Good progress; needs independent validation exposure.','Approved','2026-03-06 15:00:00+05:30'),
+('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000604','Mentor',4,5,'Can interpret DBC and trace issues with limited guidance.','Approved','2026-03-12 16:00:00+05:30'),
+('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001005','00000000-0000-0000-0000-000000000603','Manager',3,4,'Ready for EV validation projects with support.','Approved','2026-03-06 15:00:00+05:30'),
+('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000603','Manager',2,3,'Needs SOH fundamentals training.','Approved','2026-03-06 15:00:00+05:30'),
+('00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000614','Self',3,4,'Can analyze warranty data; need deeper algorithm knowledge.','Submitted','2026-03-10 12:00:00+05:30'),
+('00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000607','Mentor',3,4,'Good data orientation; recommend advanced SOH module.','Approved','2026-03-12 14:00:00+05:30'),
+('00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000001007','00000000-0000-0000-0000-000000000603','Manager',3,3,'Needs OBD practice and documentation discipline.','Approved','2026-03-06 15:00:00+05:30')
 ON CONFLICT DO NOTHING;
 
 -- Course development pipeline: unique SME + coordinator model
@@ -483,30 +409,6 @@ INSERT INTO employee_certifications (employee_id, certification_id, status, requ
 ('00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000002701','Expired','2024-01-10','2024-01-10','2024-01-10','2026-01-10','00000000-0000-0000-0000-000000000605','Renewal due.')
 ON CONFLICT DO NOTHING;
 
--- Surveys
-INSERT INTO surveys (id, survey_code, title, description, survey_type, status, created_by, start_date, due_date) VALUES
-('00000000-0000-0000-0000-000000002801','SRV-ECU-FEEDBACK','Training Feedback Survey - Automotive Electronics Fundamentals','Measures relevance and effectiveness of first electronics foundation session.','Training Feedback','Active','00000000-0000-0000-0000-000000000610','2026-03-12','2026-03-29')
-ON CONFLICT (survey_code) DO NOTHING;
-
-INSERT INTO survey_questions (survey_id, question_order, question_text, question_type, required) VALUES
-('00000000-0000-0000-0000-000000002801',1,'Did this training improve your understanding of ECU basics?','Rating',true),
-('00000000-0000-0000-0000-000000002801',2,'Can you apply this learning in your current work?','Rating',true),
-('00000000-0000-0000-0000-000000002801',3,'Do you need follow-up mentoring?','YesNo',false),
-('00000000-0000-0000-0000-000000002801',4,'Which topic needs deeper training?','Text',false)
-ON CONFLICT (survey_id, question_order) DO NOTHING;
-
-INSERT INTO survey_assignments (id, survey_id, employee_id, status, submitted_at) VALUES
-('00000000-0000-0000-0000-000000002901','00000000-0000-0000-0000-000000002801','00000000-0000-0000-0000-000000000611','Submitted','2026-03-13 10:00:00+05:30'),
-('00000000-0000-0000-0000-000000002902','00000000-0000-0000-0000-000000002801','00000000-0000-0000-0000-000000000612','Submitted','2026-03-13 11:00:00+05:30'),
-('00000000-0000-0000-0000-000000002903','00000000-0000-0000-0000-000000002801','00000000-0000-0000-0000-000000000613','Pending',NULL)
-ON CONFLICT (survey_id, employee_id) DO NOTHING;
-
-INSERT INTO survey_answers (survey_assignment_id, survey_question_id, answer_rating, answer_text)
-SELECT '00000000-0000-0000-0000-000000002901', q.id, CASE WHEN q.question_order IN (1,2) THEN 4 ELSE NULL END,
-CASE WHEN q.question_order=3 THEN 'Yes' WHEN q.question_order=4 THEN 'Need more practical demos on sensor signals.' ELSE NULL END
-FROM survey_questions q WHERE q.survey_id='00000000-0000-0000-0000-000000002801'
-ON CONFLICT DO NOTHING;
-
 -- Inbox and approvals
 INSERT INTO inbox_items (recipient_employee_id, item_type, title, body, related_entity_type, related_entity_id, status, priority, due_at) VALUES
 ('00000000-0000-0000-0000-000000000603','Assessment','Manager review pending for Riya Mukherjee','Please review FY26 skill assessment for Riya Mukherjee.','assessment_campaign','00000000-0000-0000-0000-000000002401','Unread','High','2026-03-31 18:00:00+05:30'),
@@ -522,12 +424,7 @@ INSERT INTO approvals (approval_type, requested_by, approver_id, entity_type, en
 ('Course Publish','00000000-0000-0000-0000-000000000607','00000000-0000-0000-0000-000000000610','course_development_request','00000000-0000-0000-0000-000000002601','Pending',NULL)
 ON CONFLICT DO NOTHING;
 
--- Admin settings and import demo
-INSERT INTO import_batches (batch_type, file_name, imported_by, total_records, success_records, failed_records, status) VALUES
-('Employee Master','employee_master_proxy_fy26.csv','00000000-0000-0000-0000-000000000610',20,20,0,'Imported'),
-('Skill Library','skill_library_proxy_fy26.csv','00000000-0000-0000-0000-000000000610',15,15,0,'Imported')
-ON CONFLICT DO NOTHING;
-
+-- Admin settings
 INSERT INTO system_settings (setting_key, setting_value, updated_by) VALUES
 ('branding', '{"productName":"PTE CIP","fullName":"Powertrain Engineering Capability Intelligence Platform","theme":"dark","primaryAccent":"#3B82F6"}', '00000000-0000-0000-0000-000000000610'),
 ('skillLevelScale', '{"min":1,"max":5,"labels":["Awareness","Working Knowledge","Practitioner","Advanced Practitioner","Expert / SME"]}', '00000000-0000-0000-0000-000000000610'),
