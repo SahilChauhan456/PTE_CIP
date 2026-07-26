@@ -61,6 +61,7 @@ export default function EmployeesPage() {
             <thead className="border-b border-line">
               <tr>
                 <th className="th">Employee</th>
+                <th className="th">Title</th>
                 <th className="th">Email</th>
                 <th className="th">Job Role</th>
                 <th className="th">Department</th>
@@ -77,6 +78,7 @@ export default function EmployeesPage() {
                       </Link>
                     </div>
                   </td>
+                  <td className="td text-slate-400">{e.org_title || '—'}</td>
                   <td className="td text-slate-400">{e.email}</td>
                   <td className="td text-slate-400">{e.job_role || '—'}</td>
                   <td className="td text-slate-400">{e.department || '—'}</td>
@@ -116,6 +118,7 @@ function AddEmployeeModal({ onClose, onCreated }) {
     job_role_id: '',
     manager_id: '',
     location_id: '',
+    org_title: '',
     create_login: true,
   });
   const [saving, setSaving] = useState(false);
@@ -189,10 +192,22 @@ function AddEmployeeModal({ onClose, onCreated }) {
                 {(options?.jobRoles || []).map((r) => <option key={r.id} value={r.id}>{r.role_name}</option>)}
               </select>
             </Field>
-            <Field label="Manager">
+            {/* Required, and limited to your own subtree: everyone reports to
+                someone, and you can only place a hire under yourself or below. */}
+            <Field label="Manager *">
               <select className="input" value={form.manager_id} onChange={set('manager_id')}>
                 <option value="">Select…</option>
-                {(options?.managers || []).map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+                {(options?.managers || []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.org_title ? `${m.full_name} — ${m.org_title}` : m.full_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Hierarchy Title">
+              <select className="input" value={form.org_title} onChange={set('org_title')}>
+                <option value="">Select…</option>
+                {(options?.orgTitles || []).map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </Field>
             <Field label="Location">
@@ -219,7 +234,7 @@ function AddEmployeeModal({ onClose, onCreated }) {
             <button
               className="btn-primary"
               onClick={save}
-              disabled={saving || !form.employee_code || !form.full_name || !form.email}
+              disabled={saving || !form.employee_code || !form.full_name || !form.email || !form.manager_id}
             >
               {saving ? 'Saving…' : 'Create Employee'}
             </button>

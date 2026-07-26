@@ -15,6 +15,7 @@ const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 async function lookupEmployeeByEmail(email) {
   const { rows } = await query(
     `SELECT e.id AS employee_id, e.full_name, e.email, e.job_role_id,
+            e.photo_url, e.org_title,
             jr.role_name AS job_role_name, d.name AS department_name,
             COALESCE(
               ARRAY_AGG(DISTINCT pr.role_key) FILTER (WHERE pr.role_key IS NOT NULL),
@@ -27,7 +28,8 @@ async function lookupEmployeeByEmail(email) {
      LEFT JOIN user_permission_role_map m ON m.user_id = au.id
      LEFT JOIN app_permission_roles pr ON pr.id = m.permission_role_id
      WHERE lower(e.email) = lower($1)
-     GROUP BY e.id, e.full_name, e.email, e.job_role_id, jr.role_name, d.name`,
+     GROUP BY e.id, e.full_name, e.email, e.job_role_id, e.photo_url, e.org_title,
+              jr.role_name, d.name`,
     [email]
   );
   return rows[0] || null;
@@ -57,6 +59,11 @@ function issueToken(emp) {
     roles,
     job_role_name: emp.job_role_name,
     department_name: emp.department_name,
+    // Snapshot for the first paint. It goes stale the moment someone uploads a
+    // new picture or changes title, so the UI refreshes from /employees/me —
+    // this only avoids an empty avatar on the very first render.
+    photo_url: emp.photo_url,
+    org_title: emp.org_title,
   };
 
   const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });

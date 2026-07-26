@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import { initials } from '@/lib/ui';
 
 // Reusable page header.
@@ -17,12 +19,20 @@ export function PageHeader({ title, subtitle, children }) {
 
 // Shows the uploaded profile picture when `src` is set, otherwise initials.
 export function Avatar({ name, size = 36, src, className = '' }) {
-  if (src) {
+  // Remember *which* url failed rather than a boolean: if the picture is
+  // replaced the src changes and the image is tried again, instead of the
+  // avatar staying stuck on initials for the rest of the session.
+  const [failedSrc, setFailedSrc] = useState(null);
+
+  if (src && src !== failedSrc) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={name || 'Profile picture'}
+        // A dead url (bucket cleaned, object removed) must degrade to initials
+        // rather than a broken-image glyph.
+        onError={() => setFailedSrc(src)}
         className={`shrink-0 rounded-full object-cover ring-1 ring-line ${className}`}
         style={{ width: size, height: size }}
       />

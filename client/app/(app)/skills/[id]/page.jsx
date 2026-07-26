@@ -135,7 +135,7 @@ export default function SkillDetailPage() {
               {mentors.length ? (
                 mentors.map((m) => (
                   <div key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-ink-900 p-3">
-                    <Avatar name={m.full_name} size={34} />
+                    <Avatar name={m.full_name} src={m.photo_url} size={34} />
                     <div>
                       <p className="text-sm text-white">{m.full_name}</p>
                       <p className="text-xs text-slate-500">Level {m.mentor_level}{m.can_certify ? ' · Can certify' : ''}</p>

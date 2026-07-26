@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { mutate } from 'swr';
 import { Camera, Plus, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, Avatar } from '@/components/ui';
@@ -317,6 +318,9 @@ function PhotoSection({ employeeId, name, photoUrl, onChanged }) {
       const result = await api.upload(`/employees/${employeeId}/photo`, form);
       setPreview(result.photo_url);
       setFile(null);
+      // The topbar avatar reads /employees/me, so refresh that too — otherwise
+      // the new picture shows on the profile but the header keeps the old one.
+      mutate('/employees/me');
       onChanged();
     } catch (e) {
       setErr(e.message);

@@ -1,6 +1,11 @@
 // Skills library + skill detail.
+//
+// The skills catalog is company-wide — it describes capability the organization
+// cares about, not people. Any per-employee count or list rolled up alongside it
+// is scoped to the caller's subtree.
 const express = require('express');
 const { query } = require('../db');
+const { visibleIdsSql } = require('../lib/visibility');
 
 const router = express.Router();
 
@@ -26,6 +31,9 @@ router.get('/', async (req, res, next) => {
       );
     }
 
+    // Appended last so the placeholder numbers land after the filter params.
+    const scope = visibleIdsSql(req.user, params);
+
     const { rows } = await query(
       `SELECT s.id, s.code, s.name AS skill_name, s.criticality, s.future_relevance,
               c.id AS category_id, c.name AS category,
@@ -39,9 +47,11 @@ router.get('/', async (req, res, next) => {
               ) AS labels
        FROM skills s
        LEFT JOIN skill_categories c ON c.id = s.category_id
-       LEFT JOIN employee_skill_assignments esa ON esa.skill_id = s.id
+       LEFT JOIN employee_skill_assignments esa
+              ON esa.skill_id = s.id AND esa.employee_id IN (${scope})
        LEFT JOIN job_role_skill_benchmarks rb ON rb.skill_id = s.id
-       LEFT JOIN mentor_skill_map msm ON msm.skill_id = s.id
+       LEFT JOIN mentor_skill_map msm
+              ON msm.skill_id = s.id AND msm.mentor_id IN (${scope})
        LEFT JOIN skill_label_map slm ON slm.skill_id = s.id
        LEFT JOIN skill_labels sl ON sl.id = slm.label_id
        WHERE ${where.join(' AND ')}
@@ -125,28 +135,40 @@ router.get('/:id', async (req, res, next) => {
        FROM skill_level_definitions WHERE skill_id = $1 ORDER BY level_no`,
       [id]
     );
-    // Proficiency distribution across the latest per-employee effective levels.
+    // Proficiency distribution across the latest per-employee effective levels,
+    // scoped to the caller's subtree.
+    const distParams = [id];
     const distributionP = query(
       `SELECT effective_level AS level, COUNT(*) AS count
        FROM v_employee_skill_matrix
        WHERE skill_id = $1 AND effective_level BETWEEN 1 AND 5
+         AND employee_id IN (${visibleIdsSql(req.user, distParams)})
        GROUP BY effective_level ORDER BY effective_level`,
-      [id]
+      distParams
     );
     // Benchmark: employee avg effective level vs avg required benchmark.
+    // The benchmark side is role metadata and stays global; the employee side
+    // is scoped.
+    const benchParams = [id];
+    const benchScope = visibleIdsSql(req.user, benchParams);
     const benchmarkP = query(
       `SELECT
          (SELECT ROUND(AVG(effective_level)::numeric, 1) FROM v_employee_skill_matrix
-            WHERE skill_id = $1 AND effective_level > 0) AS employee_avg,
+            WHERE skill_id = $1 AND effective_level > 0
+              AND employee_id IN (${benchScope})) AS employee_avg,
          (SELECT ROUND(AVG(required_level)::numeric, 1) FROM job_role_skill_benchmarks
             WHERE skill_id = $1) AS benchmark`,
-      [id]
+      benchParams
     );
+    // Names people, so it must be scoped.
+    const mentorParams = [id];
     const mentorsP = query(
-      `SELECT e.id, e.full_name, msm.mentor_level, msm.can_certify
+      `SELECT e.id, e.full_name, e.org_title, e.photo_url, msm.mentor_level, msm.can_certify
        FROM mentor_skill_map msm JOIN employees e ON e.id = msm.mentor_id
-       WHERE msm.skill_id = $1 ORDER BY msm.mentor_level DESC`,
-      [id]
+       WHERE msm.skill_id = $1
+         AND e.id IN (${visibleIdsSql(req.user, mentorParams)})
+       ORDER BY msm.mentor_level DESC`,
+      mentorParams
     );
     const trainingP = query(
       `SELECT tc.id, tc.title, tc.course_type, tc.delivery_mode
