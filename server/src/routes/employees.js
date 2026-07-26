@@ -3,13 +3,20 @@
 const express = require('express');
 const multer = require('multer');
 const { query, pool } = require('../db');
-const { requireRole, requireSelfOrAdmin } = require('../middleware/auth');
+const { requireRole, requireSelfOrAdmin, requireVisible } = require('../middleware/auth');
+const { visibleIdsSql, canView, managerChain } = require('../lib/visibility');
+const { streamCvPdf, cvFileName } = require('../lib/cvPdf');
 const { uploadPublicFile } = require('../supabase');
 
 const router = express.Router();
 
 // Roles allowed to onboard people from the UI.
 const MANAGE_ROLES = ['admin', 'executive', 'department_head'];
+
+// Hierarchy labels. Deliberately not tied to depth: the org chart puts DDVM at
+// depth 3 and 4, DPM at depth 4 and 5. Keep in step with the CHECK constraint in
+// db/07_org_hierarchy.sql.
+const ORG_TITLES = ['Executive Officer', 'Sr. DVM', 'DVM', 'DDVM', 'DPM', 'TM'];
 
 // Profile pictures are small; keep them in memory and stream to Supabase Storage.
 const upload = multer({
@@ -113,12 +120,23 @@ async function uniqueSkillCode(client, name) {
 // GET /api/employees/form-options — dropdown data for the Add Employee form.
 router.get('/form-options', requireRole(...MANAGE_ROLES), async (req, res, next) => {
   try {
+    // The manager list is the caller's own subtree: you may place a new hire
+    // under yourself or under anyone already beneath you, and nowhere else.
+    // This used to return the entire active directory.
+    const managerParams = [];
+    const managerSql = `
+      SELECT e.id, e.full_name, e.org_title
+      FROM employees e
+      WHERE e.employment_status = 'Active'
+        AND e.id IN (${visibleIdsSql(req.user, managerParams)})
+      ORDER BY e.full_name`;
+
     const [departments, teams, roles, locations, managers] = await Promise.all([
       query('SELECT id, name FROM departments ORDER BY name'),
       query('SELECT id, name, department_id FROM teams ORDER BY name'),
       query('SELECT id, role_name FROM job_roles ORDER BY role_name'),
       query('SELECT id, name FROM locations ORDER BY name'),
-      query("SELECT id, full_name FROM employees WHERE employment_status = 'Active' ORDER BY full_name"),
+      query(managerSql, managerParams),
     ]);
     res.json({
       departments: departments.rows,
@@ -126,6 +144,7 @@ router.get('/form-options', requireRole(...MANAGE_ROLES), async (req, res, next)
       jobRoles: roles.rows,
       locations: locations.rows,
       managers: managers.rows,
+      orgTitles: ORG_TITLES,
     });
   } catch (err) {
     next(err);
@@ -146,11 +165,28 @@ router.post('/', requireRole(...MANAGE_ROLES), async (req, res, next) => {
     job_role_id,
     manager_id,
     location_id,
+    org_title,
     create_login = true,
   } = req.body || {};
 
   if (!employee_code || !full_name || !email) {
     return res.status(400).json({ error: 'employee_code, full_name and email are required' });
+  }
+  if (org_title && !ORG_TITLES.includes(org_title)) {
+    return res.status(400).json({ error: `org_title must be one of: ${ORG_TITLES.join(', ')}` });
+  }
+
+  // A manager is now required, and must be someone the caller can already see.
+  // Without this you could graft a new hire onto a branch you have no business
+  // touching — and a NULL manager would try to create a second root, which the
+  // uq_employees_single_root index rejects with an opaque error.
+  if (!manager_id) {
+    return res.status(400).json({ error: 'manager_id is required — every employee reports to someone' });
+  }
+  if (!(await canView(req.user, manager_id))) {
+    return res
+      .status(400)
+      .json({ error: 'You can only add people under yourself or someone who reports to you' });
   }
 
   const client = await pool.connect();
@@ -160,9 +196,11 @@ router.post('/', requireRole(...MANAGE_ROLES), async (req, res, next) => {
     const emp = await client.query(
       `INSERT INTO employees
          (employee_code, full_name, email, gender, grade, joining_date,
-          department_id, team_id, job_role_id, manager_id, location_id)
-       VALUES ($1,$2,$3,COALESCE($4,'Not Specified'),$5,$6,$7,$8,$9,$10,$11)
-       RETURNING id, employee_code, full_name, email`,
+          department_id, team_id, job_role_id, manager_id, location_id, org_title,
+          sibling_order)
+       VALUES ($1,$2,$3,COALESCE($4,'Not Specified'),$5,$6,$7,$8,$9,$10,$11,$12,
+          COALESCE((SELECT MAX(sibling_order) + 1 FROM employees WHERE manager_id = $10), 1))
+       RETURNING id, employee_code, full_name, email, org_title`,
       [
         employee_code,
         full_name,
@@ -173,8 +211,9 @@ router.post('/', requireRole(...MANAGE_ROLES), async (req, res, next) => {
         department_id || null,
         team_id || null,
         job_role_id || null,
-        manager_id || null,
+        manager_id,
         location_id || null,
+        org_title || null,
       ]
     );
     const employee = emp.rows[0];
@@ -208,6 +247,9 @@ router.post('/', requireRole(...MANAGE_ROLES), async (req, res, next) => {
 });
 
 // GET /api/employees?search= — lightweight directory (used by search & pickers).
+//
+// Scoped to the caller's subtree. A leaf employee sees exactly one row —
+// themselves — which falls out of the predicate rather than being special-cased.
 router.get('/', async (req, res, next) => {
   try {
     const { search } = req.query;
@@ -217,8 +259,10 @@ router.get('/', async (req, res, next) => {
       params.push(`%${search}%`);
       where += ` AND (e.full_name ILIKE $${params.length} OR e.email ILIKE $${params.length})`;
     }
+    where += ` AND e.id IN (${visibleIdsSql(req.user, params)})`;
+
     const { rows } = await query(
-      `SELECT e.id, e.full_name, e.email, e.photo_url,
+      `SELECT e.id, e.full_name, e.email, e.photo_url, e.org_title,
               jr.role_name AS job_role, d.name AS department
        FROM employees e
        LEFT JOIN job_roles jr ON jr.id = e.job_role_id
@@ -233,135 +277,319 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// ---------------------------------------------------------------
-// Profile (read)
-// ---------------------------------------------------------------
-
-// GET /api/employees/:id/profile
-router.get('/:id/profile', async (req, res, next) => {
+// GET /api/employees/me — the signed-in user's own identity, read live.
+//
+// The JWT carries a snapshot taken at login and lives for 12 hours, so anything
+// that changes in between — a new profile picture, a new hierarchy title, a
+// transfer — would otherwise not show until the user signed out and back in.
+// Always self-scoped, so it needs no visibility gate.
+//
+// Registered before the /:id/* routes so "me" is never read as an id.
+router.get('/me', async (req, res, next) => {
   try {
-    const { id } = req.params;
-
-    const headerP = query(
-      `SELECT e.id, e.full_name, e.email, e.employee_code, e.grade, e.joining_date, e.photo_url,
-              jr.role_name AS job_role, d.name AS department, t.name AS team,
-              l.name AS location,
+    const { rows } = await query(
+      `SELECT e.id, e.full_name, e.email, e.employee_code, e.photo_url, e.org_title,
+              e.grade, jr.role_name AS job_role, d.name AS department, t.name AS team,
               mgr.full_name AS manager_name,
-              (SELECT me.full_name FROM mentor_assignments ma
-                 JOIN employees me ON me.id = ma.mentor_id
-                 WHERE ma.mentee_id = e.id AND ma.status = 'Active'
-                 ORDER BY ma.start_date ASC LIMIT 1) AS mentor_name,
-              (SELECT jr2.role_name FROM mentor_recommendations mr
-                 JOIN job_roles jr2 ON jr2.id = mr.recommended_role_id
-                 WHERE mr.employee_id = e.id AND mr.recommended_role_id IS NOT NULL
-                 ORDER BY mr.submitted_at DESC LIMIT 1) AS target_role
+              (SELECT count(*)::int FROM employees c WHERE c.manager_id = e.id) AS direct_reports,
+              (SELECT count(*)::int FROM employee_subtree(e.id)) AS visible_people
        FROM employees e
        LEFT JOIN job_roles jr ON jr.id = e.job_role_id
        LEFT JOIN departments d ON d.id = e.department_id
        LEFT JOIN teams t ON t.id = e.team_id
-       LEFT JOIN locations l ON l.id = e.location_id
        LEFT JOIN employees mgr ON mgr.id = e.manager_id
        WHERE e.id = $1`,
-      [id]
+      [req.user.employee_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/employees/org-chart — the caller's subtree as a flat, ordered list
+// the client can nest. depth is relative to the caller (0 = you).
+//
+// Registered before the /:id/* routes so "org-chart" is never read as an id.
+router.get('/org-chart', async (req, res, next) => {
+  try {
+    // Nesting is done client-side on manager_id: a node whose manager is absent
+    // from this set is a local root. That works identically for a mid-tree
+    // manager (one root: themselves) and for an admin (the whole org).
+    const params = [];
+    const scope = visibleIdsSql(req.user, params);
+
+    const { rows } = await query(
+      `SELECT t.id, t.manager_id, t.employee_code, t.full_name, t.org_title,
+              t.photo_url, t.display_label, t.structural_code, t.has_reports,
+              t.depth AS absolute_depth, t.employment_status,
+              jr.role_name AS job_role, d.name AS department
+       FROM v_employee_tree t
+       LEFT JOIN employees e ON e.id = t.id
+       LEFT JOIN job_roles jr ON jr.id = e.job_role_id
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE t.id IN (${scope})
+       ORDER BY string_to_array(t.structural_code, '.')::int[]`,
+      params
     );
 
-    // Always returns a row for an existing employee, even with no CV yet.
-    const cvP = query(
-      `SELECT COALESCE(cv.verification_status, 'Draft') AS verification_status,
-              cv.headline, cv.summary, cv.phone, cv.location_text, cv.linkedin_url,
-              cv.verified_at, cv.updated_at,
-              vb.full_name AS verified_by_name,
-              (SELECT ap.full_name FROM approvals a
-                 JOIN employees ap ON ap.id = a.approver_id
-                 WHERE a.approval_type = 'Profile Verification'
-                   AND a.entity_id = e.id AND a.status = 'Pending'
-                 ORDER BY a.requested_at DESC LIMIT 1) AS pending_with
-       FROM employees e
-       LEFT JOIN employee_cv cv ON cv.employee_id = e.id
-       LEFT JOIN employees vb ON vb.id = cv.verified_by
-       WHERE e.id = $1`,
-      [id]
+    // The chain above the caller: name + title only, never a full record.
+    const chain = await managerChain(req.user.employee_id);
+
+    res.json({ root: req.user.employee_id, nodes: rows, managerChain: chain });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------
+// Profile (read)
+// ---------------------------------------------------------------
+
+// Gathers the whole profile payload for one employee. Shared by the JSON
+// profile endpoint and the PDF download, so the page and the downloaded CV can
+// never disagree about what a person's record says. Returns null when the id
+// names nobody.
+//
+// Callers own the visibility gate — this function does not apply one.
+async function loadProfile(id) {
+  const headerP = query(
+    `SELECT e.id, e.full_name, e.email, e.employee_code, e.grade, e.joining_date, e.photo_url,
+            e.org_title,
+            jr.role_name AS job_role, d.name AS department, t.name AS team,
+            l.name AS location,
+            mgr.full_name AS manager_name,
+            (SELECT me.full_name FROM mentor_assignments ma
+               JOIN employees me ON me.id = ma.mentor_id
+               WHERE ma.mentee_id = e.id AND ma.status = 'Active'
+               ORDER BY ma.start_date ASC LIMIT 1) AS mentor_name,
+            (SELECT jr2.role_name FROM mentor_recommendations mr
+               JOIN job_roles jr2 ON jr2.id = mr.recommended_role_id
+               WHERE mr.employee_id = e.id AND mr.recommended_role_id IS NOT NULL
+               ORDER BY mr.submitted_at DESC LIMIT 1) AS target_role
+     FROM employees e
+     LEFT JOIN job_roles jr ON jr.id = e.job_role_id
+     LEFT JOIN departments d ON d.id = e.department_id
+     LEFT JOIN teams t ON t.id = e.team_id
+     LEFT JOIN locations l ON l.id = e.location_id
+     LEFT JOIN employees mgr ON mgr.id = e.manager_id
+     WHERE e.id = $1`,
+    [id]
+  );
+
+  // Always returns a row for an existing employee, even with no CV yet.
+  const cvP = query(
+    `SELECT COALESCE(cv.verification_status, 'Draft') AS verification_status,
+            cv.headline, cv.summary, cv.phone, cv.location_text, cv.linkedin_url,
+            cv.verified_at, cv.updated_at,
+            vb.full_name AS verified_by_name,
+            (SELECT ap.full_name FROM approvals a
+               JOIN employees ap ON ap.id = a.approver_id
+               WHERE a.approval_type = 'Profile Verification'
+                 AND a.entity_id = e.id AND a.status = 'Pending'
+               ORDER BY a.requested_at DESC LIMIT 1) AS pending_with
+     FROM employees e
+     LEFT JOIN employee_cv cv ON cv.employee_id = e.id
+     LEFT JOIN employees vb ON vb.id = cv.verified_by
+     WHERE e.id = $1`,
+    [id]
+  );
+
+  const experienceP = query(
+    `SELECT ${EXPERIENCE_COLUMNS} FROM employee_experience
+     WHERE employee_id = $1
+     ORDER BY sort_order, start_date DESC NULLS LAST`,
+    [id]
+  );
+
+  const educationP = query(
+    `SELECT ${EDUCATION_COLUMNS} FROM employee_education
+     WHERE employee_id = $1
+     ORDER BY sort_order, end_year DESC NULLS LAST`,
+    [id]
+  );
+
+  const passportP = query(
+    `SELECT skill_id, skill_name, self_level, manager_level, mentor_level, effective_level
+     FROM v_employee_skill_matrix
+     WHERE employee_id = $1
+     ORDER BY effective_level DESC NULLS LAST, skill_name`,
+    [id]
+  );
+
+  const recentLearningP = query(
+    `SELECT tc.title, te.status, te.completed_at, te.progress_percent, tc.course_type
+     FROM training_enrollments te JOIN training_courses tc ON tc.id = te.course_id
+     WHERE te.employee_id = $1
+     ORDER BY COALESCE(te.completed_at, te.enrolled_at) DESC
+     LIMIT 8`,
+    [id]
+  );
+
+  const certsP = query(
+    `SELECT c.title, ec.status, ec.issued_date, ec.expiry_date, appr.full_name AS approved_by
+     FROM employee_certifications ec
+     JOIN certifications c ON c.id = ec.certification_id
+     LEFT JOIN employees appr ON appr.id = ec.approved_by
+     WHERE ec.employee_id = $1
+     ORDER BY ec.issued_date DESC NULLS LAST`,
+    [id]
+  );
+
+  const mentorNotesP = query(
+    `SELECT ms.session_date, ms.mode, ms.topic, ms.notes, ms.action_items,
+            mtr.full_name AS mentor_name
+     FROM mentoring_sessions ms
+     JOIN mentor_assignments ma ON ma.id = ms.mentor_assignment_id
+     JOIN employees mtr ON mtr.id = ma.mentor_id
+     WHERE ma.mentee_id = $1
+     ORDER BY ms.session_date DESC`,
+    [id]
+  );
+
+  // Direct reports — the DOWN side of the record, always full-record visible
+  // because anyone you can see has a subtree contained in your own.
+  const reportsP = query(
+    `SELECT e.id, e.full_name, e.org_title, e.photo_url,
+            jr.role_name AS job_role,
+            EXISTS (SELECT 1 FROM employees c WHERE c.manager_id = e.id) AS has_reports
+     FROM employees e
+     LEFT JOIN job_roles jr ON jr.id = e.job_role_id
+     WHERE e.manager_id = $1
+     ORDER BY e.sibling_order, e.full_name`,
+    [id]
+  );
+
+  // The UP side: name + title only, all the way to the Executive Officer.
+  const chainP = managerChain(id);
+
+  const [header, cv, experience, education, passport, recentLearning, certs, mentorNotes, reports, chain] =
+    await Promise.all([
+      headerP,
+      cvP,
+      experienceP,
+      educationP,
+      passportP,
+      recentLearningP,
+      certsP,
+      mentorNotesP,
+      reportsP,
+      chainP,
+    ]);
+
+  if (header.rows.length === 0) return null;
+
+  return {
+    header: header.rows[0],
+    cv: cv.rows[0] || { verification_status: 'Draft' },
+    experience: experience.rows,
+    education: education.rows,
+    skillsPassport: passport.rows,
+    recentLearning: recentLearning.rows,
+    certifications: certs.rows,
+    mentorNotes: mentorNotes.rows,
+    directReports: reports.rows,
+    managerChain: chain,
+  };
+}
+
+// GET /api/employees/:id/profile
+//
+// requireVisible is the whole point of this gate: this route previously had no
+// authorization at all, so any signed-in user could read anyone's CV, contact
+// details, skills passport and learning history by id.
+router.get('/:id/profile', requireVisible(), async (req, res, next) => {
+  try {
+    const profile = await loadProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'Employee not found' });
+    res.json(profile);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/employees/:id/cv.pdf — the same profile as a downloadable CV.
+//
+// Behind requireVisible for the same reason as the JSON route: a PDF is not a
+// weaker way to read someone's record, so it gets the identical gate.
+router.get('/:id/cv.pdf', requireVisible(), async (req, res, next) => {
+  try {
+    const profile = await loadProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'Employee not found' });
+
+    // Headers go out before the first byte of the document. Once streamCvPdf
+    // has started writing there is no way back to a JSON error response, which
+    // is why loadProfile runs to completion first.
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${cvFileName(profile.header.full_name)}"`
     );
+    await streamCvPdf(res, profile);
+  } catch (err) {
+    // A failure mid-stream can only be abandoned — the client already has a
+    // 200 and part of a file.
+    if (res.headersSent) return res.destroy(err);
+    return next(err);
+  }
+});
 
-    const experienceP = query(
-      `SELECT ${EXPERIENCE_COLUMNS} FROM employee_experience
-       WHERE employee_id = $1
-       ORDER BY sort_order, start_date DESC NULLS LAST`,
-      [id]
-    );
+// PATCH /api/employees/:id/manager  { manager_id, org_title?, sibling_order? }
+//
+// Move someone to a different manager. Both the person and their new manager
+// must already be inside the caller's subtree, so a reorg can never reach
+// across into a branch you cannot see — and never detaches anyone from the
+// tree, because manager_id may not be cleared here.
+//
+// The cycle guard is in the database (trg_employees_no_cycle), not here: it
+// holds for any writer, including direct SQL.
+router.patch('/:id/manager', requireRole(...MANAGE_ROLES), requireVisible(), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { manager_id, org_title, sibling_order } = req.body || {};
 
-    const educationP = query(
-      `SELECT ${EDUCATION_COLUMNS} FROM employee_education
-       WHERE employee_id = $1
-       ORDER BY sort_order, end_year DESC NULLS LAST`,
-      [id]
-    );
-
-    const passportP = query(
-      `SELECT skill_id, skill_name, self_level, manager_level, mentor_level, effective_level
-       FROM v_employee_skill_matrix
-       WHERE employee_id = $1
-       ORDER BY effective_level DESC NULLS LAST, skill_name`,
-      [id]
-    );
-
-    const recentLearningP = query(
-      `SELECT tc.title, te.status, te.completed_at, te.progress_percent, tc.course_type
-       FROM training_enrollments te JOIN training_courses tc ON tc.id = te.course_id
-       WHERE te.employee_id = $1
-       ORDER BY COALESCE(te.completed_at, te.enrolled_at) DESC
-       LIMIT 8`,
-      [id]
-    );
-
-    const certsP = query(
-      `SELECT c.title, ec.status, ec.issued_date, ec.expiry_date, appr.full_name AS approved_by
-       FROM employee_certifications ec
-       JOIN certifications c ON c.id = ec.certification_id
-       LEFT JOIN employees appr ON appr.id = ec.approved_by
-       WHERE ec.employee_id = $1
-       ORDER BY ec.issued_date DESC NULLS LAST`,
-      [id]
-    );
-
-    const mentorNotesP = query(
-      `SELECT ms.session_date, ms.mode, ms.topic, ms.notes, ms.action_items,
-              mtr.full_name AS mentor_name
-       FROM mentoring_sessions ms
-       JOIN mentor_assignments ma ON ma.id = ms.mentor_assignment_id
-       JOIN employees mtr ON mtr.id = ma.mentor_id
-       WHERE ma.mentee_id = $1
-       ORDER BY ms.session_date DESC`,
-      [id]
-    );
-
-    const [header, cv, experience, education, passport, recentLearning, certs, mentorNotes] =
-      await Promise.all([
-        headerP,
-        cvP,
-        experienceP,
-        educationP,
-        passportP,
-        recentLearningP,
-        certsP,
-        mentorNotesP,
-      ]);
-
-    if (header.rows.length === 0) {
-      return res.status(404).json({ error: 'Employee not found' });
+    if (!manager_id) {
+      return res.status(400).json({ error: 'manager_id is required' });
+    }
+    if (manager_id === id) {
+      return res.status(400).json({ error: 'An employee cannot report to themselves' });
+    }
+    if (org_title !== undefined && org_title !== null && !ORG_TITLES.includes(org_title)) {
+      return res.status(400).json({ error: `org_title must be one of: ${ORG_TITLES.join(', ')}` });
+    }
+    if (!(await canView(req.user, manager_id))) {
+      return res.status(400).json({ error: 'That manager is not in your organisation' });
     }
 
-    res.json({
-      header: header.rows[0],
-      cv: cv.rows[0] || { verification_status: 'Draft' },
-      experience: experience.rows,
-      education: education.rows,
-      skillsPassport: passport.rows,
-      recentLearning: recentLearning.rows,
-      certifications: certs.rows,
-      mentorNotes: mentorNotes.rows,
-    });
+    const { rows } = await query(
+      `UPDATE employees
+          SET manager_id    = $2,
+              org_title     = COALESCE($3, org_title),
+              sibling_order = COALESCE($4,
+                COALESCE((SELECT MAX(sibling_order) + 1 FROM employees WHERE manager_id = $2), 1))
+        WHERE id = $1
+        RETURNING id, full_name, manager_id, org_title, sibling_order`,
+      [
+        id,
+        manager_id,
+        org_title || null,
+        Number.isFinite(Number(sibling_order)) ? Number(sibling_order) : null,
+      ]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+    res.json(rows[0]);
   } catch (err) {
+    // The cycle trigger raises check_violation; surface it as a conflict rather
+    // than a 500, since it is a legitimate thing for a caller to attempt.
+    if (err.code === '23514' && /Reporting cycle/i.test(err.message || '')) {
+      return res
+        .status(409)
+        .json({ error: 'That move would put someone under a person who already reports to them' });
+    }
     next(err);
   }
 });

@@ -1,7 +1,10 @@
 // JWT auth middleware. Verifies the Bearer token on protected routes.
 const jwt = require('jsonwebtoken');
+const { canView } = require('../lib/visibility');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -12,7 +15,15 @@ function requireAuth(req, res, next) {
   }
 
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const claims = jwt.verify(token, JWT_SECRET);
+    // A correctly signed token whose employee_id is not a uuid cannot identify
+    // anyone, and every scoped query would hand it to Postgres as a uuid. Reject
+    // it here so a malformed identity is a 401 rather than a 500 from the
+    // driver — and so no route has to defend against it individually.
+    if (!UUID_RE.test(String(claims.employee_id || ''))) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    req.user = claims;
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -44,4 +55,23 @@ function requireSelfOrAdmin(param = 'id') {
   };
 }
 
-module.exports = { requireAuth, requireRole, requireSelfOrAdmin, JWT_SECRET };
+// Read gate for another person's record: the target must be the caller
+// themselves or someone in their subtree.
+//
+// Answers 404 rather than 403 on a miss. A 403 would confirm that the id names
+// a real employee, which leaks exactly the org structure this rule exists to
+// hide — an outsider could map the whole company by probing ids.
+function requireVisible(param = 'id') {
+  return async (req, res, next) => {
+    try {
+      if (await canView(req.user, req.params[param])) {
+        return next();
+      }
+      return res.status(404).json({ error: 'Employee not found' });
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+
+module.exports = { requireAuth, requireRole, requireSelfOrAdmin, requireVisible, JWT_SECRET };

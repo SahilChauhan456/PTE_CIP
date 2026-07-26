@@ -15,7 +15,16 @@ export default function Topbar({ title }) {
   const { data: inbox } = useSWR('/inbox/count', fetcher, { refreshInterval: 60000 });
   const unread = (inbox && inbox.unread) || 0;
 
+  // Read the live record rather than trusting the JWT: the token is a 12-hour
+  // snapshot, so a picture uploaded on /profile would otherwise not appear here
+  // until the next sign-in. Falls back to the token claims for the first paint.
+  const { data: me } = useSWR('/employees/me', fetcher);
+  const identity = me || user || {};
+
   const roleLabel = user ? ROLE_LABELS[user.role] || user.role : '';
+  // Prefer the hierarchy title (TM, DPM, Sr. DVM…) — it is what the person
+  // actually is in the org. The permission role is the fallback.
+  const subtitle = identity.org_title || roleLabel;
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-ink-950/80 px-5 backdrop-blur">
@@ -40,19 +49,25 @@ export default function Topbar({ title }) {
             onClick={() => setOpen((v) => !v)}
             className="flex items-center gap-2 rounded-lg border border-line bg-ink-900 py-1 pl-1 pr-2"
           >
-            <Avatar name={user?.full_name || 'User'} size={30} />
+            <Avatar name={identity.full_name || 'User'} src={identity.photo_url} size={30} />
             <div className="hidden text-left sm:block">
-              <p className="text-xs font-medium leading-tight text-white">{user?.full_name}</p>
-              <p className="text-[10px] leading-tight text-slate-500">{roleLabel}</p>
+              <p className="text-xs font-medium leading-tight text-white">{identity.full_name}</p>
+              <p className="text-[10px] leading-tight text-slate-500">{subtitle}</p>
             </div>
             <ChevronDown size={14} className="text-slate-500" />
           </button>
 
           {open ? (
             <div className="absolute right-0 mt-2 w-48 rounded-lg border border-line bg-ink-800 p-1 shadow-xl">
-              <div className="border-b border-line px-3 py-2">
-                <p className="text-xs font-medium text-white">{user?.full_name}</p>
-                <p className="text-[10px] text-slate-500">{user?.email}</p>
+              <div className="flex items-center gap-2.5 border-b border-line px-3 py-2.5">
+                <Avatar name={identity.full_name || 'User'} src={identity.photo_url} size={34} />
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-medium text-white">{identity.full_name}</p>
+                  <p className="truncate text-[10px] text-slate-500">{identity.email}</p>
+                  <p className="truncate text-[10px] text-slate-500">
+                    {[identity.org_title, identity.job_role].filter(Boolean).join(' · ') || roleLabel}
+                  </p>
+                </div>
               </div>
               <Link
                 href="/profile"

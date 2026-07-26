@@ -1,35 +1,27 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import useSWR from 'swr';
-import { Search, Send, X } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
 import { Card, Avatar } from '@/components/ui';
-import { useAuth } from '@/components/AuthProvider';
 
-// Search anyone in the directory and ask them to verify your profile / CV.
-// The request lands in their inbox as an approval they can accept or reject.
+// Ask someone in your reporting line to verify your profile / CV. The request
+// lands in their inbox as an approval they can accept or reject.
+//
+// This used to be a free search over the whole directory. Under top-down
+// visibility the directory is your own subtree, so searching it would only ever
+// offer your own reports — the wrong direction, and empty for a leaf employee.
+// The server returns the chain above you instead (/verification/approvers), and
+// enforces the same list on submit.
 export default function RequestVerificationModal({ onClose, onSent }) {
-  const { user } = useAuth();
-  const [term, setTerm] = useState('');
-  const [debounced, setDebounced] = useState('');
   const [selected, setSelected] = useState(null);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(term.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [term]);
-
-  // Empty search returns the full active directory, so this always has results.
-  const { data: people, isLoading } = useSWR(
-    `/employees${debounced ? `?search=${encodeURIComponent(debounced)}` : ''}`,
-    fetcher
-  );
-
-  const candidates = (people || []).filter((p) => p.id !== user?.employee_id);
+  const { data: candidates, isLoading } = useSWR('/verification/approvers', fetcher);
+  const options = candidates || [];
 
   async function send() {
     if (!selected) return;
@@ -59,8 +51,8 @@ export default function RequestVerificationModal({ onClose, onSent }) {
             </button>
           </div>
           <p className="mb-4 text-xs text-slate-500">
-            Pick anyone in the organisation to review your profile. They will see the request in their
-            inbox and can approve or reject it.
+            Pick someone in your reporting line to review your profile. They will see the request in
+            their inbox and can approve or reject it.
           </p>
 
           {selected ? (
@@ -70,7 +62,8 @@ export default function RequestVerificationModal({ onClose, onSent }) {
                 <div>
                   <p className="text-sm font-medium text-white">{selected.full_name}</p>
                   <p className="text-xs text-slate-400">
-                    {[selected.job_role, selected.department].filter(Boolean).join(' · ') || selected.email}
+                    {selected.org_title || 'Manager'}
+                    {selected.distance === 1 ? ' · your manager' : ''}
                   </p>
                 </div>
               </div>
@@ -79,42 +72,32 @@ export default function RequestVerificationModal({ onClose, onSent }) {
               </button>
             </div>
           ) : (
-            <>
-              <div className="relative mb-2">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input
-                  className="input pl-9"
-                  placeholder="Search people by name or email…"
-                  value={term}
-                  onChange={(e) => setTerm(e.target.value)}
-                  autoFocus
-                />
-              </div>
-
-              <div className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-line bg-ink-900">
-                {isLoading ? (
-                  <p className="p-3 text-xs text-slate-500">Loading people…</p>
-                ) : candidates.length ? (
-                  candidates.slice(0, 30).map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelected(p)}
-                      className="flex w-full items-center gap-3 border-b border-line px-3 py-2 text-left last:border-0 hover:bg-ink-700/50"
-                    >
-                      <Avatar name={p.full_name} src={p.photo_url} size={28} />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-slate-200">{p.full_name}</p>
-                        <p className="truncate text-xs text-slate-500">
-                          {[p.job_role, p.department].filter(Boolean).join(' · ') || p.email}
-                        </p>
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <p className="p-3 text-xs text-slate-500">Nobody matches that search.</p>
-                )}
-              </div>
-            </>
+            <div className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-line bg-ink-900">
+              {isLoading ? (
+                <p className="p-3 text-xs text-slate-500">Loading your reporting line…</p>
+              ) : options.length ? (
+                options.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelected(p)}
+                    className="flex w-full items-center gap-3 border-b border-line px-3 py-2 text-left last:border-0 hover:bg-ink-700/50"
+                  >
+                    <Avatar name={p.full_name} src={p.photo_url} size={28} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-slate-200">{p.full_name}</p>
+                      <p className="truncate text-xs text-slate-500">
+                        {p.org_title || '—'}
+                        {p.distance === 1 ? ' · your manager' : ''}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p className="p-3 text-xs text-slate-500">
+                  There is nobody above you to request verification from.
+                </p>
+              )}
+            </div>
           )}
 
           <div className="mb-3">

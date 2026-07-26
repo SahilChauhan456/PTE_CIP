@@ -1,15 +1,51 @@
 // Profile / CV verification workflow.
-//   request  → an employee asks anyone in the directory to verify their CV
+//   request  → an employee asks someone in their reporting line to verify their CV
 //   decision → that person approves or rejects it from their inbox
 // The request is stored as an `approvals` row (approval_type
 // 'Profile Verification', entity = the requester's employee_cv) plus an
 // inbox_items row for the approver.
+//
+// This used to let you ask ANYONE in the directory. Under strict top-down
+// visibility the directory is your own subtree, so that would have meant only
+// being able to ask your own reports — backwards, and impossible for a leaf
+// employee, who has none. Verification now goes UP the chain instead, which is
+// also the direction it means something.
 const express = require('express');
 const { query, pool } = require('../db');
 
 const router = express.Router();
 
 const APPROVAL_TYPE = 'Profile Verification';
+
+// Who may verify this person's CV: their reporting line, nearest manager first.
+// The Executive Officer has no chain, so they fall back to their direct reports
+// — otherwise the one person at the top could never be verified at all.
+async function approverOptions(employeeId) {
+  const { rows } = await query(
+    `SELECT id, full_name, org_title, photo_url, distance FROM (
+       SELECT c.id, c.full_name, c.org_title, c.photo_url, c.distance
+       FROM employee_chain($1) c
+       UNION ALL
+       SELECT e.id, e.full_name, e.org_title, e.photo_url, 1 AS distance
+       FROM employees e
+       WHERE e.manager_id = $1
+         AND e.employment_status = 'Active'
+         AND NOT EXISTS (SELECT 1 FROM employee_ancestors($1))
+     ) opts
+     ORDER BY distance, full_name`,
+    [employeeId]
+  );
+  return rows;
+}
+
+// GET /api/verification/approvers — valid targets for my verification request.
+router.get('/approvers', async (req, res, next) => {
+  try {
+    res.json(await approverOptions(req.user.employee_id));
+  } catch (err) {
+    next(err);
+  }
+});
 
 async function withTransaction(fn) {
   const client = await pool.connect();
@@ -39,12 +75,14 @@ router.post('/request', async (req, res, next) => {
       return res.status(400).json({ error: 'You cannot verify your own profile' });
     }
 
-    const approver = await query(
-      "SELECT id, full_name FROM employees WHERE id = $1 AND employment_status = 'Active'",
-      [approver_employee_id]
-    );
-    if (approver.rows.length === 0) {
-      return res.status(404).json({ error: 'That person was not found in the directory' });
+    // Enforced server-side, not just in the picker: the approver must be on
+    // your reporting line.
+    const options = await approverOptions(me);
+    const approver = options.find((o) => o.id === approver_employee_id);
+    if (!approver) {
+      return res.status(400).json({
+        error: 'You can only ask someone in your reporting line to verify your profile',
+      });
     }
 
     const approval = await withTransaction(async (client) => {
@@ -91,7 +129,7 @@ router.post('/request', async (req, res, next) => {
       return row;
     });
 
-    res.status(201).json({ ...approval, approver_name: approver.rows[0].full_name });
+    res.status(201).json({ ...approval, approver_name: approver.full_name });
   } catch (err) {
     next(err);
   }

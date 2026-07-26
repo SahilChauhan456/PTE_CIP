@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
-import { BadgeCheck, Clock, Pencil, Plus, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { BadgeCheck, Clock, Download, Loader2, Pencil, Plus, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { fetcher, api } from '@/lib/api';
 import { Card, Skeleton, ErrorState, Avatar, Badge, StatTile, ProgressBar } from '@/components/ui';
 import { formatDate, formatMonthYear, statusClasses, LEVEL_TITLES } from '@/lib/ui';
@@ -22,12 +22,25 @@ export default function EmployeeProfileView({ employeeId }) {
   const [tab, setTab] = useState('Summary');
   const [modal, setModal] = useState(null); // 'edit' | 'skill' | 'verify'
   const [actionError, setActionError] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   const isSelf = Boolean(user && employeeId && user.employee_id === employeeId);
   const canEdit = isSelf || (user?.roles || []).includes('admin');
 
   const refresh = () => mutate(profileKey);
 
+  // The API answers 404 for anyone outside your subtree — deliberately the same
+  // response as a person who does not exist, so probing ids cannot map the org.
+  if (error?.status === 404) {
+    return (
+      <Card>
+        <h2 className="text-base font-semibold text-white">Profile not available</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          You can view your own profile and anyone who reports to you, directly or further down.
+        </p>
+      </Card>
+    );
+  }
   if (error) return <ErrorState error={error} />;
   if (isLoading || !data) return <Skeleton className="h-96" />;
 
@@ -41,6 +54,8 @@ export default function EmployeeProfileView({ employeeId }) {
     recentLearning = [],
     certifications = [],
     mentorNotes = [],
+    directReports = [],
+    managerChain = [],
   } = data;
 
   const verification = verificationMeta(cv);
@@ -48,6 +63,23 @@ export default function EmployeeProfileView({ employeeId }) {
   const years = experienceSpanYears(experience);
   const assessedCount = skillsPassport.filter((s) => s.manager_level || s.mentor_level).length;
   const validCerts = certifications.filter((c) => c.status === 'Approved').length;
+
+  // The PDF is rendered server-side from the same record this page shows, so
+  // what downloads always matches what is on screen.
+  async function downloadCv() {
+    setActionError('');
+    setDownloading(true);
+    try {
+      await api.download(
+        `/employees/${employeeId}/cv.pdf`,
+        `${(header.full_name || 'employee').replace(/\s+/g, '-')}-CV.pdf`
+      );
+    } catch (e) {
+      setActionError(e.message);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   async function removeSkill(skill) {
     if (!window.confirm(`Remove "${skill.skill_name}" from this profile?`)) return;
@@ -70,6 +102,9 @@ export default function EmployeeProfileView({ employeeId }) {
             <div className="min-w-[200px]">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-semibold text-white">{header.full_name}</h1>
+                {header.org_title ? (
+                  <Badge className="border-accent/40 bg-accent/10 text-accent">{header.org_title}</Badge>
+                ) : null}
                 <Badge className={verification.chipClass}>
                   <verification.Icon size={12} className="mr-1" />
                   {verification.label}
@@ -103,24 +138,90 @@ export default function EmployeeProfileView({ employeeId }) {
               <Field label="Mentor" value={header.mentor_name} />
               <Field label="Target Role" value={header.target_role} />
             </div>
-            {canEdit ? (
-              <div className="flex flex-wrap gap-2">
-                <button className="btn-ghost" onClick={() => setModal('edit')}>
-                  <Pencil size={14} /> Edit Profile
-                </button>
-                <button className="btn-ghost" onClick={() => setModal('skill')}>
-                  <Plus size={14} /> Add Skill
-                </button>
-                {isSelf ? (
-                  <button className="btn-primary" onClick={() => setModal('verify')}>
-                    <ShieldCheck size={14} /> Request Verification
+            {/* Downloading is not an edit — anyone allowed to open this profile
+                may take the CV away with them. */}
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-ghost" onClick={downloadCv} disabled={downloading}>
+                {downloading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+                {downloading ? 'Preparing…' : 'Download CV'}
+              </button>
+              {canEdit ? (
+                <>
+                  <button className="btn-ghost" onClick={() => setModal('edit')}>
+                    <Pencil size={14} /> Edit Profile
                   </button>
-                ) : null}
-              </div>
-            ) : null}
+                  <button className="btn-ghost" onClick={() => setModal('skill')}>
+                    <Plus size={14} /> Add Skill
+                  </button>
+                  {isSelf ? (
+                    <button className="btn-primary" onClick={() => setModal('verify')}>
+                      <ShieldCheck size={14} /> Request Verification
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       </Card>
+
+      {/* Where this person sits in the organisation.
+          UP is name + title only — the chain above you is never a full record.
+          DOWN is everyone directly beneath, each of whom you can open. */}
+      {managerChain.length || directReports.length ? (
+        <Card className="mb-5">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                Reports up to
+              </h3>
+              {managerChain.length ? (
+                <ol className="space-y-1.5">
+                  {managerChain.map((m) => (
+                    <li key={m.id} className="flex items-center gap-2.5" style={{ paddingLeft: (m.distance - 1) * 14 }}>
+                      <Avatar name={m.full_name} src={m.photo_url} size={24} />
+                      <span className="text-sm text-slate-300">{m.full_name}</span>
+                      <span className="text-xs text-slate-500">{m.org_title || '—'}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-slate-500">Top of the organisation.</p>
+              )}
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                Direct reports ({directReports.length})
+              </h3>
+              {directReports.length ? (
+                <ul className="space-y-1.5">
+                  {directReports.map((r) => (
+                    <li key={r.id}>
+                      <a
+                        href={`/employees/${r.id}`}
+                        className="flex items-center gap-2.5 rounded-md px-1 py-0.5 hover:bg-ink-700/50"
+                      >
+                        <Avatar name={r.full_name} src={r.photo_url} size={24} />
+                        <span className="text-sm text-slate-300">{r.full_name}</span>
+                        <span className="text-xs text-slate-500">
+                          {[r.org_title, r.has_reports ? 'has reports' : null].filter(Boolean).join(' · ')}
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500">No direct reports.</p>
+              )}
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <div className="mb-5 flex flex-wrap gap-1 border-b border-line">
         {TABS.map((t) => (

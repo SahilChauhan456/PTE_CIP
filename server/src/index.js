@@ -26,6 +26,10 @@ const app = express();
 app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN || 'http://localhost:3000',
+    // CORS hides every response header except a short safelist. The CV download
+    // reads the filename the server chose out of Content-Disposition, so that
+    // one has to be published explicitly.
+    exposedHeaders: ['Content-Disposition'],
   })
 );
 app.use(express.json());

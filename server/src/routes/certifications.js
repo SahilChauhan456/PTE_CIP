@@ -1,6 +1,7 @@
 // Certification tracker.
 const express = require('express');
 const { query } = require('../db');
+const { visibleIdsSql } = require('../lib/visibility');
 
 const router = express.Router();
 
@@ -19,10 +20,13 @@ router.get('/', async (req, res, next) => {
       params.push(`%${search}%`);
       where.push(`(e.full_name ILIKE $${params.length} OR c.title ILIKE $${params.length})`);
     }
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    // This tracker names the person holding each certification, so it is a
+    // per-employee list and follows the subtree rule.
+    where.push(`ec.employee_id IN (${visibleIdsSql(req.user, params)})`);
+    const whereSql = `WHERE ${where.join(' AND ')}`;
 
     const { rows } = await query(
-      `SELECT ec.id, e.full_name AS employee, c.title AS certification,
+      `SELECT ec.id, e.full_name AS employee, e.org_title, c.title AS certification,
               c.certification_type, ec.status, ec.issued_date, ec.expiry_date,
               appr.full_name AS approved_by
        FROM employee_certifications ec
