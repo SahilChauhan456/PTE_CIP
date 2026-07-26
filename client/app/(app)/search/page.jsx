@@ -31,7 +31,7 @@ export default function SearchPage() {
             {(employees || []).slice(0, 12).map((e) => (
               <Link key={e.id} href={`/employees/${e.id}`}>
                 <Card className="card-tight flex items-center gap-3 transition hover:border-accent-soft">
-                  <Avatar name={e.full_name} size={34} />
+                  <Avatar name={e.full_name} src={e.photo_url} size={34} />
                   <div>
                     <p className="text-sm text-white">{e.full_name}</p>
                     <p className="text-xs text-slate-500">{e.job_role} · {e.department}</p>

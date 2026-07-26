@@ -62,7 +62,7 @@ router.get('/approvals', async (req, res, next) => {
     const { rows } = await query(
       `SELECT a.id, a.approval_type, a.entity_type, a.entity_id, a.status,
               a.decision_comments, a.requested_at, a.decided_at,
-              rq.full_name AS requested_by
+              rq.full_name AS requested_by, a.requested_by AS requested_by_id
        FROM approvals a
        LEFT JOIN employees rq ON rq.id = a.requested_by
        WHERE a.approver_id = $1

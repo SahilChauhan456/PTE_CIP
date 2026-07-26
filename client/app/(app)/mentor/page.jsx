@@ -68,7 +68,7 @@ export default function MentorPage() {
                     <tr key={m.assignment_id} className="hover:bg-ink-700/40">
                       <td className="td">
                         <div className="flex items-center gap-2">
-                          <Avatar name={m.mentee_name} size={30} />
+                          <Avatar name={m.mentee_name} src={m.mentee_photo} size={30} />
                           <a href={`/employees/${m.mentee_id}`} className="font-medium text-white hover:text-accent-soft">
                             {m.mentee_name}
                           </a>

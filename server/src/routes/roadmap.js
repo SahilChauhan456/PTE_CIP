@@ -3,6 +3,7 @@
 // from each category's average assessed level and future_relevance.
 const express = require('express');
 const { query } = require('../db');
+const { visibleIdsSql } = require('../lib/visibility');
 
 const router = express.Router();
 
@@ -17,6 +18,10 @@ const REQUIRED_BY_RELEVANCE = {
 router.get('/', async (req, res, next) => {
   try {
     // Average effective level and dominant future relevance per skill category.
+    // "Current capability" is measured over the caller's own organization, so a
+    // DVM's roadmap reflects their division rather than the whole company.
+    const params = [];
+    const scope = visibleIdsSql(req.user, params);
     const { rows } = await query(
       `SELECT sc.name AS skill_area,
               ROUND(AVG(COALESCE(m.effective_level,0)), 2) AS avg_level,
@@ -24,9 +29,11 @@ router.get('/', async (req, res, next) => {
               BOOL_OR(s.criticality IN ('High','Critical')) AS strategic
        FROM skill_categories sc
        JOIN skills s ON s.category_id = sc.id
-       LEFT JOIN v_employee_skill_matrix m ON m.skill_id = s.id
+       LEFT JOIN v_employee_skill_matrix m
+              ON m.skill_id = s.id AND m.employee_id IN (${scope})
        GROUP BY sc.name
-       ORDER BY sc.name`
+       ORDER BY sc.name`,
+      params
     );
 
     const roadmap = rows.map((r) => {

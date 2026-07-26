@@ -12,7 +12,8 @@ PostgreSQL database.
 ptecip/
 ├── client/     # Next.js app (JSX + Tailwind)
 ├── server/     # Express API
-├── db/         # 01_schema.sql, 02_seed.sql, 03_demo_queries.sql, 04_mermaid_erd.md
+├── db/         # 01_schema.sql, 02_seed.sql, 03_demo_queries.sql, 04_mermaid_erd.md,
+│              # 05_profile_cv.sql
 └── README.md
 ```
 
@@ -22,14 +23,27 @@ ptecip/
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Open **SQL Editor** and run, in order:
-   1. `db/01_schema.sql` — creates all 57 tables, views, triggers.
+   1. `db/01_schema.sql` — creates all tables, views, triggers.
    2. `db/02_seed.sql` — loads demo data (Indian names, powertrain content).
-   3. (optional) `db/03_demo_queries.sql` — sanity-check the screens' queries.
+   3. `db/05_profile_cv.sql` — profile/CV tables + the verification approval type.
+      Additive and idempotent; safe on an already-seeded database.
+   4. `db/07_org_hierarchy.sql` — the reporting tree: `org_title`, cycle and
+      single-manager guards, the subtree/ancestor traversal functions, the
+      `visible_employee_ids()` visibility predicate and `v_employee_tree`.
+   5. `db/08_org_seed.sql` — rebuilds the reporting tree as one connected
+      hierarchy (50 synthetic staff) and adds the single-root index. Must run
+      after `07`; the index cannot be created until the tree is connected.
+   6. `db/09_scoped_analytics.sql` — `executive_dashboard()`, the per-viewer
+      replacement for `v_executive_dashboard`.
+   7. (optional) `db/03_demo_queries.sql` — sanity-check the screens' queries,
+      including the hierarchy and visibility invariants at the end.
 3. Get your connection string: **Project Settings → Database → Connection string →
    "Transaction pooler"**. It looks like:
    ```
    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
    ```
+4. For profile pictures, open **Storage → New bucket**, name it `avatars` and mark
+   it **Public**. Uploads are refused with a clear message until this exists.
 
 ---
 
@@ -44,13 +58,16 @@ npm run dev               # http://localhost:4000
 
 **`server/.env`**
 
-| Variable        | Description                                             |
-| --------------- | ------------------------------------------------------- |
-| `DATABASE_URL`  | Supabase **Transaction pooler** connection string       |
-| `JWT_SECRET`    | Any long random string used to sign demo JWTs           |
-| `DEMO_PASSWORD` | Shared demo login password (default `demo123`)          |
-| `PORT`          | API port (default `4000`)                               |
-| `CLIENT_ORIGIN` | Allowed CORS origin (default `http://localhost:3000`)   |
+| Variable                        | Description                                             |
+| ------------------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`                  | Supabase **Transaction pooler** connection string       |
+| `JWT_SECRET`                    | Any long random string used to sign demo JWTs           |
+| `DEMO_PASSWORD`                 | Shared demo login password (default `demo123`)          |
+| `PORT`                          | API port (default `4000`)                               |
+| `CLIENT_ORIGIN`                 | Allowed CORS origin (default `http://localhost:3000`)   |
+| `SUPABASE_URL`                  | Project URL — **Project Settings → API**                |
+| `SUPABASE_SERVICE_ROLE_KEY`     | `service_role` secret; server-side only, never shipped to the browser |
+| `SUPABASE_STORAGE_BUCKET`       | Public bucket for profile pictures (default `avatars`)  |
 
 Health check: `GET http://localhost:4000/api/health`.
 
@@ -66,5 +83,92 @@ npm run dev                        # http://localhost:3000
 ```
 
 Open http://localhost:3000 → you'll be redirected to `/login`.
+
+---
+
+## 4. Profile / CV and verification
+
+Every signed-in user gets a self-service CV on `/profile`. The same component
+renders read-only at `/employees/[id]` for anyone the viewer is allowed to see —
+see *Organizational hierarchy* below. This used to be an open directory where
+any signed-in user could read anyone's full record; it no longer is.
+
+- **Edit Profile** — headline, professional summary, phone, location, LinkedIn,
+  plus add/edit/remove **experience** and **education** rows. Everything is typed
+  in by hand; there is no CV file upload.
+- **Profile picture** — the only real file upload. Goes to the Supabase Storage
+  bucket; the public URL is saved on `employees.photo_url`.
+- **Add Skill** — search the skill library or type a skill that doesn't exist yet
+  (it gets created), then set your own level 1–5. Stored as an
+  `employee_skill_assignments` link plus a `Self` row in `skill_assessments`, so
+  the Skills Passport and `v_employee_skill_matrix` pick it up unchanged.
+  A skill a manager or mentor has already assessed can't be removed from here.
+- **Request Verification** — pick someone from **your reporting line** (your
+  manager, their manager, up to the Executive Officer) and send them a request.
+  It becomes an `approvals` row (`Profile Verification`) plus an inbox item for
+  them. They **Approve** or **Reject** from *Inbox → Pending Approvals*; the
+  result is written back as a `Verified` / `Rejected` badge on the profile and a
+  notice in the requester's inbox. Verification points *up* the tree because the
+  directory is now your subtree — searching it could only ever offer your own
+  reports, and would offer a leaf employee nobody at all.
+- Editing any CV detail afterwards drops the profile back to **Not Verified** and
+  cancels a still-pending request, so verification always refers to what was
+  actually reviewed.
+
+**Add Employee** (`/employees`) is open to `admin`, `executive` and
+`department_head`. The manager dropdown is limited to the creator's own subtree,
+and a manager is required — there is exactly one root.
+
+---
+
+## 5. Organizational hierarchy and visibility
+
+`employees.manager_id` is the reporting tree: a single self-referencing adjacency
+list, one root, ragged by design (some branches stop at `DDVM` or `DPM`, one
+reaches `TM` at depth 6).
+
+**Identity.** Three identifiers with separate jobs:
+
+| Identifier | Stability | Purpose |
+| ---------- | --------- | ------- |
+| `employees.id` (uuid) | Immutable, never reused | FK target, all joins, audit |
+| `employees.employee_code` (`PTE0001`) | Stable across transfers | Human/HR reference |
+| structural code (`2.3.1.1`) | **Derived in `v_employee_tree`, never stored** | Org-chart display |
+
+The positional code is computed from `sibling_order` at read time. Storing it
+would mean renumbering an entire subtree on every transfer — and a code that
+renumbers was never a stable identifier. `org_title` is a *label*, not a level:
+the reference chart puts `DDVM` at two different depths and `DPM` at two more, so
+nothing ties title to depth. Depth is computed.
+
+**Visibility.** One rule, enforced by `visible_employee_ids()` in
+`db/07_org_hierarchy.sql` and applied through `server/src/lib/visibility.js`:
+
+| Tier | Who | What they see |
+| ---- | --- | ------------- |
+| FULL | you + your entire subtree, all levels | the complete record |
+| MINIMAL | the chain above you | name, title, photo — nothing else |
+| NONE | peers, siblings, other branches | nothing; requests answer `404` |
+| admin | everyone | the complete record |
+
+Two properties fall out of the rule rather than being special-cased: a **leaf
+employee** sees exactly one person, because their subtree is just themselves; and
+the **Executive Officer** sees everyone, because the root's subtree is the
+organization. The `executive` permission role grants no extra reach — position in
+the tree does.
+
+Out-of-subtree lookups answer **404, not 403**, on purpose: a 403 confirms the id
+names a real person, which would let anyone map the company by probing ids.
+
+Hierarchy and permission roles are **orthogonal**. `app_permission_roles` answers
+"what features can I use"; the tree answers "whose records can I see". `admin` is
+the only role that touches visibility.
+
+**Guards** (all in the database, so they hold for direct SQL too): exactly one
+root (`uq_employees_single_root`), nobody manages themselves, and no reporting
+cycles (`trg_employees_no_cycle`).
+
+**Org Chart** (`/org-chart`) is open to everyone and shows the viewer's own
+subtree plus the name-and-title chain above them.
 
 ---

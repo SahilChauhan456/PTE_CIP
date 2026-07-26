@@ -71,3 +71,68 @@ LEFT JOIN skills s ON s.id=cdr.skill_id
 LEFT JOIN employees sme ON sme.id=cdr.sme_id
 LEFT JOIN employees coord ON coord.id=cdr.coordinator_id
 ORDER BY cdr.created_at DESC;
+
+-- =============================================================
+-- HIERARCHY + VISIBILITY INVARIANTS (07_org_hierarchy / 08_org_seed)
+-- These are assertions, not reports: each one states the answer it must give.
+-- =============================================================
+
+-- 11. Tree shape.
+SELECT
+  (SELECT count(*) FROM employees WHERE manager_id IS NULL)              AS roots,          -- must be 1
+  (SELECT count(*) FROM employees)                                       AS headcount,
+  (SELECT count(*) FROM v_employee_tree)                                 AS reachable,      -- must equal headcount
+  (SELECT max(depth) FROM v_employee_tree)                               AS max_depth,
+  (SELECT count(*) FROM employees WHERE org_title IS NULL)               AS untitled;       -- must be 0
+
+-- `reachable` < `headcount` would mean someone is detached from the tree and
+-- therefore invisible to the Executive Officer.
+
+-- 12. The Executive Officer's subtree is the whole organization.
+SELECT count(*) AS eo_can_see
+FROM employee_subtree((SELECT id FROM employees WHERE manager_id IS NULL));
+
+-- 13. The chart as drawn, indented by depth.
+SELECT repeat('  ', depth - 1) || display_label AS chart, full_name, employee_code
+FROM v_employee_tree
+ORDER BY string_to_array(structural_code, '.')::int[];
+
+-- 14. A leaf sees exactly one person — itself. No special case in the code.
+SELECT e.full_name,
+       (SELECT count(*) FROM employee_subtree(e.id))   AS can_see,     -- must be 1
+       (SELECT count(*) FROM employee_ancestors(e.id)) AS chain_length
+FROM employees e
+WHERE NOT EXISTS (SELECT 1 FROM employees c WHERE c.manager_id = e.id)
+ORDER BY e.full_name
+LIMIT 5;
+
+-- 15. Nobody can see outside their own subtree. MUST RETURN ZERO ROWS.
+SELECT v.full_name AS viewer, t.employee_id AS leaked
+FROM employees v
+CROSS JOIN LATERAL visible_employee_ids(v.id, false) t
+WHERE NOT EXISTS (
+  SELECT 1 FROM employee_subtree(v.id) s WHERE s.employee_id = t.employee_id
+);
+
+-- 16. Visibility is strictly one-directional: if A can see B and A <> B,
+--     then B must NOT be able to see A. MUST RETURN ZERO ROWS.
+SELECT a.full_name AS a, b.full_name AS b
+FROM employees a
+JOIN employees b ON b.id <> a.id
+WHERE can_view_employee(a.id, b.id) AND can_view_employee(b.id, a.id);
+
+-- 17. Guards actually fire. Each of these must ERROR — run them one at a time,
+--     inside a transaction you roll back.
+-- BEGIN;
+--   UPDATE employees SET manager_id = id WHERE employee_code = 'PTE0013';
+--     -- expect: Reporting cycle: ... — the BEFORE trigger fires ahead of the
+--     -- employees_no_self_manage CHECK, so the trigger reports it first. Both
+--     -- guards are in place; the trigger simply gets there sooner.
+--   UPDATE employees SET manager_id = (SELECT id FROM employees WHERE employee_code='PTE0021')
+--     WHERE employee_code = 'PTE0013';
+--     -- expect: Reporting cycle: ... is already inside the subtree of ...
+--   UPDATE employees SET manager_id = NULL WHERE employee_code = 'PTE0013';
+--     -- expect: duplicate key value violates unique constraint "uq_employees_single_root"
+--   UPDATE employees SET org_title = 'Wizard' WHERE employee_code = 'PTE0013';
+--     -- expect: violates check constraint "employees_org_title_check"
+-- ROLLBACK;

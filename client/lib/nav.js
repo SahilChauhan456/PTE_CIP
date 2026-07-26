@@ -10,15 +10,21 @@ import {
   KanbanSquare,
   BadgeCheck,
   Users,
+  UserCircle,
   UserPlus,
   BarChart3,
   Settings,
+  Network,
 } from 'lucide-react';
 
 // `roles` = permission roles that may see the item. Empty = everyone.
 export const NAV_ITEMS = [
+  { label: 'My Profile', href: '/profile', icon: UserCircle, roles: [] },
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: [] },
   { label: 'Inbox', href: '/inbox', icon: Inbox, roles: [], badge: 'inbox' },
+  // Open to everyone: the page only ever shows the viewer's own subtree, so a
+  // leaf employee sees a chart of one person rather than a permission error.
+  { label: 'Org Chart', href: '/org-chart', icon: Network, roles: [] },
   { label: 'Search', href: '/search', icon: Search, roles: [] },
   { label: 'Skills', href: '/skills', icon: Boxes, roles: [] },
   { label: 'Roles / Careers', href: '/roles', icon: Briefcase, roles: [] },
@@ -37,7 +43,12 @@ export const NAV_ITEMS = [
     icon: Users,
     roles: ['admin', 'mentor', 'sme', 'department_head', 'executive', 'training_coordinator'],
   },
-  { label: 'Employees', href: '/employees', icon: UserPlus, roles: ['admin'] },
+  {
+    label: 'Employees',
+    href: '/employees',
+    icon: UserPlus,
+    roles: ['admin', 'executive', 'department_head'],
+  },
   {
     label: 'Analytics',
     href: '/roadmap',

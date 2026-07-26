@@ -1,0 +1,50 @@
+// Supabase Storage client (service-role) used for profile picture uploads.
+// The DB itself is reached over plain Postgres in db.js — this client exists
+// only so the API can push files into a Storage bucket and hand back a URL.
+const { createClient } = require('@supabase/supabase-js');
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'avatars';
+
+const configured = Boolean(SUPABASE_URL && SERVICE_ROLE_KEY);
+
+if (!configured) {
+  console.warn(
+    '[storage] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — profile picture uploads are disabled.'
+  );
+}
+
+// Service-role key bypasses RLS, so never expose this client to the browser.
+const supabase = configured
+  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+  : null;
+
+// Uploads a buffer and returns the public URL.
+// `path` is relative to the bucket, e.g. "<employeeId>/avatar-1700000000.png".
+async function uploadPublicFile(path, buffer, contentType) {
+  if (!supabase) {
+    const err = new Error(
+      'File storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in server/.env.'
+    );
+    err.status = 503;
+    throw err;
+  }
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, buffer, { contentType, upsert: true });
+
+  if (error) {
+    const err = new Error(
+      `Upload failed: ${error.message}. Check that a public bucket named "${BUCKET}" exists.`
+    );
+    err.status = 502;
+    throw err;
+  }
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+module.exports = { supabase, uploadPublicFile, BUCKET, storageConfigured: configured };

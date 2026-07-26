@@ -17,6 +17,7 @@ const mentorRoutes = require('./routes/mentor');
 const certificationsRoutes = require('./routes/certifications');
 const roadmapRoutes = require('./routes/roadmap');
 const inboxRoutes = require('./routes/inbox');
+const verificationRoutes = require('./routes/verification');
 const courseDevRoutes = require('./routes/courseDevelopment');
 const adminRoutes = require('./routes/admin');
 
@@ -25,6 +26,10 @@ const app = express();
 app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN || 'http://localhost:3000',
+    // CORS hides every response header except a short safelist. The CV download
+    // reads the filename the server chose out of Content-Disposition, so that
+    // one has to be published explicitly.
+    exposedHeaders: ['Content-Disposition'],
   })
 );
 app.use(express.json());
@@ -48,6 +53,7 @@ app.use('/api/mentor', mentorRoutes);
 app.use('/api/certifications', certificationsRoutes);
 app.use('/api/roadmap', roadmapRoutes);
 app.use('/api/inbox', inboxRoutes);
+app.use('/api/verification', verificationRoutes);
 app.use('/api/course-development', courseDevRoutes);
 app.use('/api/admin', adminRoutes);
 

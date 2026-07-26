@@ -8,9 +8,12 @@ import { fetcher, api } from '@/lib/api';
 import { PageHeader, Card, Skeleton, ErrorState, EmptyState, Avatar } from '@/components/ui';
 import { useAuth } from '@/components/AuthProvider';
 
+// Roles that can onboard people (mirrors the server-side gate).
+const MANAGE_ROLES = ['admin', 'executive', 'department_head'];
+
 export default function EmployeesPage() {
   const { user } = useAuth();
-  const isAdmin = (user?.roles || []).includes('admin');
+  const canManage = (user?.roles || []).some((r) => MANAGE_ROLES.includes(r));
 
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -18,12 +21,15 @@ export default function EmployeesPage() {
   const key = `/employees${search ? `?search=${encodeURIComponent(search)}` : ''}`;
   const { data, error, isLoading } = useSWR(key, fetcher);
 
-  // Feature is admin-only.
-  if (!isAdmin) {
+  // Directory + onboarding is limited to the top-level roles.
+  if (!canManage) {
     return (
       <div>
         <PageHeader title="Employees" />
-        <EmptyState title="Restricted" hint="Employee management is available to administrators only." />
+        <EmptyState
+          title="Restricted"
+          hint="Employee management is available to admins, executives and department heads."
+        />
       </div>
     );
   }
@@ -55,6 +61,7 @@ export default function EmployeesPage() {
             <thead className="border-b border-line">
               <tr>
                 <th className="th">Employee</th>
+                <th className="th">Title</th>
                 <th className="th">Email</th>
                 <th className="th">Job Role</th>
                 <th className="th">Department</th>
@@ -65,12 +72,13 @@ export default function EmployeesPage() {
                 <tr key={e.id} className="hover:bg-ink-700/40">
                   <td className="td">
                     <div className="flex items-center gap-2">
-                      <Avatar name={e.full_name} size={30} />
+                      <Avatar name={e.full_name} src={e.photo_url} size={30} />
                       <Link href={`/employees/${e.id}`} className="font-medium text-white hover:text-accent-soft">
                         {e.full_name}
                       </Link>
                     </div>
                   </td>
+                  <td className="td text-slate-400">{e.org_title || '—'}</td>
                   <td className="td text-slate-400">{e.email}</td>
                   <td className="td text-slate-400">{e.job_role || '—'}</td>
                   <td className="td text-slate-400">{e.department || '—'}</td>
@@ -110,6 +118,7 @@ function AddEmployeeModal({ onClose, onCreated }) {
     job_role_id: '',
     manager_id: '',
     location_id: '',
+    org_title: '',
     create_login: true,
   });
   const [saving, setSaving] = useState(false);
@@ -183,10 +192,22 @@ function AddEmployeeModal({ onClose, onCreated }) {
                 {(options?.jobRoles || []).map((r) => <option key={r.id} value={r.id}>{r.role_name}</option>)}
               </select>
             </Field>
-            <Field label="Manager">
+            {/* Required, and limited to your own subtree: everyone reports to
+                someone, and you can only place a hire under yourself or below. */}
+            <Field label="Manager *">
               <select className="input" value={form.manager_id} onChange={set('manager_id')}>
                 <option value="">Select…</option>
-                {(options?.managers || []).map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+                {(options?.managers || []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.org_title ? `${m.full_name} — ${m.org_title}` : m.full_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Hierarchy Title">
+              <select className="input" value={form.org_title} onChange={set('org_title')}>
+                <option value="">Select…</option>
+                {(options?.orgTitles || []).map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </Field>
             <Field label="Location">
@@ -213,7 +234,7 @@ function AddEmployeeModal({ onClose, onCreated }) {
             <button
               className="btn-primary"
               onClick={save}
-              disabled={saving || !form.employee_code || !form.full_name || !form.email}
+              disabled={saving || !form.employee_code || !form.full_name || !form.email || !form.manager_id}
             >
               {saving ? 'Saving…' : 'Create Employee'}
             </button>

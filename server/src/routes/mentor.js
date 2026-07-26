@@ -1,11 +1,20 @@
 // Mentor dashboard + mentee list.
 const express = require('express');
 const { query } = require('../db');
+const { requireVisible } = require('../middleware/auth');
+const { visibleIdsSql } = require('../lib/visibility');
 
 const router = express.Router();
 
 // GET /api/mentor/:mentorId/dashboard
-router.get('/:mentorId/dashboard', async (req, res, next) => {
+//
+// NOTE: mentoring deliberately crosses branches — a mentor is often nowhere
+// near their mentee in the reporting line. Under strict subtree visibility the
+// mentee list below is filtered to people the CALLER can see, so a mentor will
+// not see mentees outside their own subtree. That is the chosen rule applied
+// consistently, not an oversight; relaxing it means granting an active
+// mentor_assignments row a narrow mutual visibility exception.
+router.get('/:mentorId/dashboard', requireVisible('mentorId'), async (req, res, next) => {
   try {
     const { mentorId } = req.params;
 
@@ -14,10 +23,13 @@ router.get('/:mentorId/dashboard', async (req, res, next) => {
     // Mentee list: target skill (from assignment), mentee's current level for
     // that skill, a project-application level (mentor recommended level),
     // and last interaction (latest mentoring session).
+    const menteeParams = [mentorId];
+    const menteeScope = visibleIdsSql(req.user, menteeParams);
     const menteesP = query(
       `SELECT ma.id AS assignment_id,
               mentee.id AS mentee_id,
               mentee.full_name AS mentee_name,
+              mentee.photo_url AS mentee_photo,
               s.name AS target_skill,
               esa.target_level,
               COALESCE(m.effective_level, 0) AS current_level,
@@ -35,8 +47,9 @@ router.get('/:mentorId/dashboard', async (req, res, next) => {
        LEFT JOIN v_employee_skill_matrix m
               ON m.employee_id = ma.mentee_id AND m.skill_id = ma.skill_id
        WHERE ma.mentor_id = $1
+         AND ma.mentee_id IN (${menteeScope})
        ORDER BY last_interaction DESC NULLS LAST, mentee.full_name`,
-      [mentorId]
+      menteeParams
     );
 
     const [summary, mentees] = await Promise.all([summaryP, menteesP]);

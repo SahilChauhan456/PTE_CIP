@@ -1,11 +1,13 @@
 // Learning plan Kanban.
 const express = require('express');
 const { query } = require('../db');
+const { requireVisible } = require('../middleware/auth');
+const { isAdmin } = require('../lib/visibility');
 
 const router = express.Router();
 
 // GET /api/learning-plan/:employeeId — Kanban items grouped by status.
-router.get('/:employeeId', async (req, res, next) => {
+router.get('/:employeeId', requireVisible('employeeId'), async (req, res, next) => {
   try {
     const { employeeId } = req.params;
     const { rows } = await query(
@@ -64,10 +66,20 @@ router.patch('/items/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
+    // Your board is yours. This route previously had no ownership check at all,
+    // so any signed-in user could move any other user's cards by item id.
+    // Reads follow the subtree rule; writes stay self-or-admin.
     params.push(id);
+    const idParam = `$${params.length}`;
+    let ownership = '';
+    if (!isAdmin(req.user)) {
+      params.push(req.user.employee_id);
+      ownership = ` AND employee_id = $${params.length}`;
+    }
+
     const { rows } = await query(
       `UPDATE learning_plan_items SET ${sets.join(', ')}
-       WHERE id = $${params.length}
+       WHERE id = ${idParam}${ownership}
        RETURNING id, status, progress_percent, completed_at`,
       params
     );

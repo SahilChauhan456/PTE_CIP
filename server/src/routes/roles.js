@@ -1,12 +1,19 @@
 // Job roles list + role detail (mandatory skills + people readiness).
 const express = require('express');
 const { query } = require('../db');
+const { visibleIdsSql } = require('../lib/visibility');
 
 const router = express.Router();
 
 // GET /api/roles
+//
+// The role catalog itself is company-wide (it describes the org, not people),
+// but the headcount per role is scoped — otherwise it reports how many people
+// hold a role that the caller cannot see a single one of.
 router.get('/', async (req, res, next) => {
   try {
+    const params = [];
+    const scope = visibleIdsSql(req.user, params);
     const { rows } = await query(
       `SELECT jr.id, jr.code, jr.role_name, jr.role_family, jr.function_area,
               jr.role_level, jr.criticality, jr.is_future_role,
@@ -14,9 +21,10 @@ router.get('/', async (req, res, next) => {
               COUNT(DISTINCT e.id) AS employees
        FROM job_roles jr
        LEFT JOIN job_role_skill_benchmarks b ON b.job_role_id = jr.id
-       LEFT JOIN employees e ON e.job_role_id = jr.id
+       LEFT JOIN employees e ON e.job_role_id = jr.id AND e.id IN (${scope})
        GROUP BY jr.id
-       ORDER BY jr.role_name`
+       ORDER BY jr.role_name`,
+      params
     );
     res.json(rows);
   } catch (err) {
@@ -40,7 +48,10 @@ router.get('/:id', async (req, res, next) => {
       [id]
     );
 
-    // People readiness bucketed from v_role_readiness.
+    // People readiness bucketed from v_role_readiness — scoped to the caller's
+    // subtree, so the counts describe their own organization rather than the
+    // whole company.
+    const readinessParams = [id];
     const readinessP = query(
       `SELECT
          COUNT(*) FILTER (WHERE readiness_percent >= 100) AS ready_now,
@@ -49,15 +60,22 @@ router.get('/:id', async (req, res, next) => {
          COUNT(*) FILTER (WHERE readiness_percent < 50) AS not_ready,
          COUNT(*) AS total,
          ROUND(AVG(readiness_percent), 1) AS avg_readiness
-       FROM v_role_readiness WHERE job_role_id = $1`,
-      [id]
+       FROM v_role_readiness
+       WHERE job_role_id = $1
+         AND employee_id IN (${visibleIdsSql(req.user, readinessParams)})`,
+      readinessParams
     );
 
+    // This one names people, so it must be scoped: it used to list every
+    // employee holding the role, regardless of who was asking.
+    const peopleParams = [id];
     const peopleP = query(
       `SELECT employee_id, employee_name, required_skills, skills_meeting_target, readiness_percent
-       FROM v_role_readiness WHERE job_role_id = $1
+       FROM v_role_readiness
+       WHERE job_role_id = $1
+         AND employee_id IN (${visibleIdsSql(req.user, peopleParams)})
        ORDER BY readiness_percent DESC NULLS LAST`,
-      [id]
+      peopleParams
     );
 
     const trainingP = query(

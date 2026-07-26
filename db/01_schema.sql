@@ -114,20 +114,6 @@ ALTER TABLE departments
   ADD CONSTRAINT fk_departments_head_employee
   FOREIGN KEY (head_employee_id) REFERENCES employees(id);
 
-CREATE TABLE IF NOT EXISTS career_tracks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT
-);
-
-CREATE TABLE IF NOT EXISTS career_track_roles (
-  career_track_id UUID NOT NULL REFERENCES career_tracks(id) ON DELETE CASCADE,
-  job_role_id UUID NOT NULL REFERENCES job_roles(id) ON DELETE CASCADE,
-  sequence_order INT NOT NULL,
-  PRIMARY KEY (career_track_id, job_role_id)
-);
-
 CREATE TABLE IF NOT EXISTS app_permission_roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   role_key TEXT UNIQUE NOT NULL,
@@ -226,52 +212,8 @@ CREATE TABLE IF NOT EXISTS employee_skill_assignments (
 -- -----------------------------
 -- Assessment framework
 -- -----------------------------
-CREATE TABLE IF NOT EXISTS assessment_campaigns (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  start_date DATE NOT NULL,
-  due_date DATE NOT NULL,
-  status TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Active','Completed','Archived')),
-  created_by UUID REFERENCES employees(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS assessment_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL,
-  assessment_type TEXT NOT NULL CHECK (assessment_type IN ('Self','Manager','Mentor','SME','Certification')),
-  description TEXT,
-  active BOOLEAN DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS assessment_questions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  template_id UUID NOT NULL REFERENCES assessment_templates(id) ON DELETE CASCADE,
-  question_order INT NOT NULL,
-  question_text TEXT NOT NULL,
-  question_type TEXT NOT NULL CHECK (question_type IN ('Rating','Text','File','YesNo','MultipleChoice')),
-  required BOOLEAN DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS assessment_assignments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  campaign_id UUID NOT NULL REFERENCES assessment_campaigns(id) ON DELETE CASCADE,
-  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  manager_id UUID REFERENCES employees(id),
-  mentor_id UUID REFERENCES employees(id),
-  status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Self Submitted','Manager Reviewed','Mentor Reviewed','Completed')),
-  self_submitted_at TIMESTAMPTZ,
-  manager_reviewed_at TIMESTAMPTZ,
-  mentor_reviewed_at TIMESTAMPTZ,
-  UNIQUE(campaign_id, employee_id)
-);
-
 CREATE TABLE IF NOT EXISTS skill_assessments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  campaign_id UUID REFERENCES assessment_campaigns(id) ON DELETE SET NULL,
   employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   skill_id UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
   assessor_employee_id UUID REFERENCES employees(id),
@@ -283,44 +225,6 @@ CREATE TABLE IF NOT EXISTS skill_assessments (
   assessed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_skill_assessments_emp_skill ON skill_assessments(employee_id, skill_id);
-CREATE INDEX IF NOT EXISTS idx_skill_assessments_campaign ON skill_assessments(campaign_id);
-
-CREATE TABLE IF NOT EXISTS skill_evidence (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  skill_id UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
-  assessment_id UUID REFERENCES skill_assessments(id) ON DELETE SET NULL,
-  evidence_type TEXT NOT NULL CHECK (evidence_type IN ('Project Report','Test Data','Simulation File','Training Assignment','Presentation','Manager Note','Mentor Note','Certificate','Other')),
-  title TEXT NOT NULL,
-  description TEXT,
-  file_url TEXT,
-  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  validated_by UUID REFERENCES employees(id),
-  validation_status TEXT DEFAULT 'Pending' CHECK (validation_status IN ('Pending','Validated','Rejected'))
-);
-
--- -----------------------------
--- Talent flags and signals
--- -----------------------------
-CREATE TABLE IF NOT EXISTS talent_flags (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  flag_key TEXT UNIQUE NOT NULL,
-  flag_name TEXT NOT NULL,
-  description TEXT,
-  color TEXT
-);
-
-CREATE TABLE IF NOT EXISTS employee_talent_flags (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  flag_id UUID NOT NULL REFERENCES talent_flags(id),
-  skill_id UUID REFERENCES skills(id),
-  job_role_id UUID REFERENCES job_roles(id),
-  assigned_by UUID REFERENCES employees(id),
-  notes TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(employee_id, flag_id, skill_id, job_role_id)
-);
 
 -- -----------------------------
 -- Mentors, SMEs and technical support
@@ -345,20 +249,6 @@ CREATE TABLE IF NOT EXISTS sme_profiles (
   employee_id UUID PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
   expertise_summary TEXT,
   content_development_capacity TEXT,
-  active BOOLEAN DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS sme_skill_map (
-  sme_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  skill_id UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
-  sme_level INT NOT NULL CHECK (sme_level BETWEEN 4 AND 5),
-  owns_curriculum BOOLEAN DEFAULT FALSE,
-  PRIMARY KEY (sme_id, skill_id)
-);
-
-CREATE TABLE IF NOT EXISTS training_coordinator_profiles (
-  employee_id UUID PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
-  scope TEXT,
   active BOOLEAN DEFAULT TRUE
 );
 
@@ -439,21 +329,8 @@ CREATE TABLE IF NOT EXISTS course_skill_map (
   PRIMARY KEY(course_id, skill_id)
 );
 
-CREATE TABLE IF NOT EXISTS training_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  course_id UUID NOT NULL REFERENCES training_courses(id) ON DELETE CASCADE,
-  session_title TEXT NOT NULL,
-  start_datetime TIMESTAMPTZ NOT NULL,
-  end_datetime TIMESTAMPTZ NOT NULL,
-  location_text TEXT,
-  trainer_id UUID REFERENCES employees(id),
-  capacity INT,
-  status TEXT DEFAULT 'Scheduled' CHECK (status IN ('Scheduled','Completed','Cancelled','Draft'))
-);
-
 CREATE TABLE IF NOT EXISTS training_enrollments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES training_sessions(id) ON DELETE SET NULL,
   course_id UUID NOT NULL REFERENCES training_courses(id) ON DELETE CASCADE,
   employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   nominated_by UUID REFERENCES employees(id),
@@ -466,19 +343,6 @@ CREATE TABLE IF NOT EXISTS training_enrollments (
 );
 CREATE INDEX IF NOT EXISTS idx_training_enrollments_employee ON training_enrollments(employee_id);
 CREATE INDEX IF NOT EXISTS idx_training_enrollments_course ON training_enrollments(course_id);
-
-CREATE TABLE IF NOT EXISTS training_feedback (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  enrollment_id UUID NOT NULL REFERENCES training_enrollments(id) ON DELETE CASCADE,
-  content_relevance INT CHECK (content_relevance BETWEEN 1 AND 5),
-  trainer_effectiveness INT CHECK (trainer_effectiveness BETWEEN 1 AND 5),
-  practical_usefulness INT CHECK (practical_usefulness BETWEEN 1 AND 5),
-  confidence_before INT CHECK (confidence_before BETWEEN 1 AND 5),
-  confidence_after INT CHECK (confidence_after BETWEEN 1 AND 5),
-  needs_mentor_support BOOLEAN DEFAULT FALSE,
-  comments TEXT,
-  submitted_at TIMESTAMPTZ DEFAULT NOW()
-);
 
 CREATE TABLE IF NOT EXISTS learning_plan_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -575,50 +439,6 @@ CREATE TABLE IF NOT EXISTS employee_certifications (
 );
 
 -- -----------------------------
--- Surveys and feedback
--- -----------------------------
-CREATE TABLE IF NOT EXISTS surveys (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  survey_code TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  survey_type TEXT CHECK (survey_type IN ('Training Feedback','Mentor Feedback','Capability Pulse','Course Need','Workshop Effectiveness')),
-  status TEXT DEFAULT 'Draft' CHECK (status IN ('Draft','Active','Closed','Archived')),
-  created_by UUID REFERENCES employees(id),
-  start_date DATE,
-  due_date DATE
-);
-
-CREATE TABLE IF NOT EXISTS survey_questions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  survey_id UUID NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-  question_order INT NOT NULL,
-  question_text TEXT NOT NULL,
-  question_type TEXT CHECK (question_type IN ('Rating','Text','YesNo','MultipleChoice')),
-  required BOOLEAN DEFAULT TRUE,
-  UNIQUE(survey_id, question_order)
-);
-
-CREATE TABLE IF NOT EXISTS survey_assignments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  survey_id UUID NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  status TEXT DEFAULT 'Pending' CHECK (status IN ('Pending','Submitted','Expired')),
-  assigned_at TIMESTAMPTZ DEFAULT NOW(),
-  submitted_at TIMESTAMPTZ,
-  UNIQUE(survey_id, employee_id)
-);
-
-CREATE TABLE IF NOT EXISTS survey_answers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  survey_assignment_id UUID NOT NULL REFERENCES survey_assignments(id) ON DELETE CASCADE,
-  survey_question_id UUID NOT NULL REFERENCES survey_questions(id) ON DELETE CASCADE,
-  answer_text TEXT,
-  answer_rating INT CHECK (answer_rating BETWEEN 1 AND 5),
-  UNIQUE(survey_assignment_id, survey_question_id)
-);
-
--- -----------------------------
 -- Inbox, approvals, admin
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS inbox_items (
@@ -637,7 +457,7 @@ CREATE TABLE IF NOT EXISTS inbox_items (
 
 CREATE TABLE IF NOT EXISTS approvals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  approval_type TEXT CHECK (approval_type IN ('Training Nomination','Certification','Skill Level','Course Publish','Mentor Recommendation')),
+  approval_type TEXT CHECK (approval_type IN ('Training Nomination','Certification','Skill Level','Course Publish','Mentor Recommendation','Profile Verification')),
   requested_by UUID REFERENCES employees(id),
   approver_id UUID REFERENCES employees(id),
   entity_type TEXT NOT NULL,
@@ -648,17 +468,8 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS import_batches (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  batch_type TEXT CHECK (batch_type IN ('Employee Master','Skill Library','Role Framework','Training History','Assessment Data','Certification Records')),
-  file_name TEXT,
-  imported_by UUID REFERENCES employees(id),
-  total_records INT DEFAULT 0,
-  success_records INT DEFAULT 0,
-  failed_records INT DEFAULT 0,
-  status TEXT DEFAULT 'Uploaded' CHECK (status IN ('Uploaded','Validated','Imported','Failed')),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE INDEX IF NOT EXISTS idx_approvals_approver_status ON approvals(approver_id, status);
+CREATE INDEX IF NOT EXISTS idx_approvals_entity ON approvals(entity_type, entity_id);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -677,6 +488,53 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_by UUID REFERENCES employees(id),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- -----------------------------
+-- Profile / CV (hand-typed by the employee) + verification state.
+-- Mirrored in db/05_profile_cv.sql for already-deployed databases.
+-- -----------------------------
+CREATE TABLE IF NOT EXISTS employee_cv (
+  employee_id UUID PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+  headline TEXT,
+  summary TEXT,
+  phone TEXT,
+  location_text TEXT,
+  linkedin_url TEXT,
+  verification_status TEXT NOT NULL DEFAULT 'Draft'
+    CHECK (verification_status IN ('Draft','Pending','Verified','Rejected')),
+  verified_by UUID REFERENCES employees(id),
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TRIGGER trg_employee_cv_updated_at BEFORE UPDATE ON employee_cv FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS employee_experience (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  organization TEXT,
+  start_date DATE,
+  end_date DATE,
+  description TEXT,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_experience_employee ON employee_experience(employee_id);
+
+CREATE TABLE IF NOT EXISTS employee_education (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  degree TEXT NOT NULL,
+  institution TEXT,
+  field_of_study TEXT,
+  start_year INT,
+  end_year INT,
+  grade TEXT,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_education_employee ON employee_education(employee_id);
 
 -- -----------------------------
 -- Analytics views for SaaS screens
