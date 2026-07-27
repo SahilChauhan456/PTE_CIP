@@ -1,5 +1,6 @@
 // Google OAuth login → app JWT. Only emails present in the employees table may sign in.
 const express = require('express');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { query } = require('../db');
@@ -9,6 +10,19 @@ const router = express.Router();
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+
+// One shared password for every employee — the real access gate is the
+// employees-table email check, which is identical to the Google path.
+const SHARED_LOGIN_PASSWORD = process.env.SHARED_LOGIN_PASSWORD;
+
+// Constant-time compare so the shared password can't be probed by timing.
+function passwordMatches(supplied) {
+  const a = Buffer.from(String(supplied));
+  const b = Buffer.from(String(SHARED_LOGIN_PASSWORD));
+  // timingSafeEqual throws on length mismatch, so that case is handled first.
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 // Look up an employee by email and aggregate their permission roles.
 // Returns the employee row (with a `roles` array) or null if the email is unknown.
@@ -111,6 +125,43 @@ router.post('/google', async (req, res, next) => {
     query(
       "UPDATE app_users SET last_login_at = NOW(), auth_provider = 'Google' WHERE lower(email) = lower($1)",
       [email]
+    ).catch(() => {});
+
+    res.json({ token, user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/login  { email, password }
+// Email + shared-password sign-in. The email gate is the same one the Google
+// route uses: the address must exist in the employees table.
+router.post('/login', async (req, res, next) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    if (!SHARED_LOGIN_PASSWORD) {
+      return res.status(500).json({ error: 'Password sign-in is not configured on the server' });
+    }
+
+    // Email-must-exist gate: only known employees may sign in.
+    const emp = await lookupEmployeeByEmail(String(email).trim());
+    if (!emp) {
+      return res.status(403).json({ error: 'This email is not authorized for PTE CIP' });
+    }
+
+    if (!passwordMatches(password)) {
+      return res.status(401).json({ error: 'Incorrect password' });
+    }
+
+    const { token, user } = issueToken(emp);
+
+    // Best-effort: record login + provider (ignore failure).
+    query(
+      "UPDATE app_users SET last_login_at = NOW(), auth_provider = 'Password' WHERE lower(email) = lower($1)",
+      [emp.email]
     ).catch(() => {});
 
     res.json({ token, user });
