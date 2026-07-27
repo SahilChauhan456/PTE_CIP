@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
-import { Zap, ShieldCheck } from 'lucide-react';
+// Commented out together with the <GoogleLogin> block below — with the button
+// disabled this import is the only thing pulling in @react-oauth/google, and it
+// fails to resolve until that package is installed. Uncomment both together.
+// import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
+import { Zap, ShieldCheck, Mail, Lock, Loader2 } from 'lucide-react';
 import { api, setSession, getToken } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -13,6 +16,9 @@ export default function LoginPage() {
   const router = useRouter();
   const { setUser } = useAuth();
   const [error, setError] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   // The globe artwork lives at /public/earth.png; fall back to the inline SVG if it is missing.
   const [artOk, setArtOk] = useState(true);
 
@@ -21,6 +27,23 @@ export default function LoginPage() {
       router.replace('/profile');
     }
   }, [router]);
+
+  async function handlePasswordLogin(e) {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      const { token, user } = await api.login(email.trim(), password);
+      setSession(token, user);
+      setUser(user);
+      router.replace('/profile');
+    } catch (err) {
+      // 403 = email not in the employees table; 401 = wrong password.
+      setError(err.message || 'Sign-in failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleGoogle(credential) {
     setError('');
@@ -69,7 +92,56 @@ export default function LoginPage() {
               </div>
             ) : null}
 
-            <div className="mt-8">
+            <form onSubmit={handlePasswordLogin} className="mt-8 space-y-3 text-left">
+              <div className="relative">
+                <Mail
+                  size={15}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+                />
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="w-full rounded-xl border border-line bg-ink-800/70 py-2.5 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-accent focus:ring-1 focus:ring-accent"
+                />
+              </div>
+
+              <div className="relative">
+                <Lock
+                  size={15}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+                />
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full rounded-xl border border-line bg-ink-800/70 py-2.5 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-accent focus:ring-1 focus:ring-accent"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  'Sign in'
+                )}
+              </button>
+            </form>
+
+            {/* <div className="mt-8">
               {GOOGLE_CLIENT_ID ? (
                 <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
                   <div className="flex justify-center [color-scheme:light]">
@@ -91,7 +163,7 @@ export default function LoginPage() {
                   <code className="text-slate-300">client/.env.local</code>.
                 </div>
               )}
-            </div>
+            </div> */}
 
             <div className="mt-8 flex items-center gap-3">
               <span className="h-px flex-1 bg-line" />

@@ -120,6 +120,9 @@ export const api = {
   // Google Sign-In: exchange the Google ID token for an app JWT.
   google: (credential) =>
     request('/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
+  // Email + shared-password sign-in.
+  login: (email, password) =>
+    request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
 };
 
 export { API_URL };
