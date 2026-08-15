@@ -15,15 +15,18 @@ import {
   Tooltip,
 } from 'recharts';
 import { fetcher } from '@/lib/api';
-import { Card, Skeleton, ErrorState, Badge, Avatar } from '@/components/ui';
-import { criticalityClasses, CHART_COLORS } from '@/lib/ui';
+import { Card, Skeleton, ErrorState, Badge, Avatar, EmptyState } from '@/components/ui';
+import { criticalityClasses, CHART_COLORS, CHART_TOOLTIP } from '@/lib/ui';
 
-const TABS = ['Overview', 'Level Definition', 'Roles', 'Training', 'Certifications', 'Mentors', 'Analytics'];
+// Analytics leads: it is what the page opens on, so it belongs in the first
+// position rather than landing the reader on the last tab in the row.
+const TABS = ['Analytics', 'Overview', 'Level Definition', 'Roles', 'Training', 'Certifications', 'Mentors'];
 
 export default function SkillDetailPage() {
   const { id } = useParams();
   const { data, error, isLoading } = useSWR(`/skills/${id}`, fetcher);
-  const [tab, setTab] = useState('Analytics');
+  // Driven off the list so the opening tab and the leading tab cannot drift apart.
+  const [tab, setTab] = useState(TABS[0]);
 
   if (error) return <ErrorState error={error} />;
   if (isLoading || !data) return <Skeleton className="h-96" />;
@@ -90,7 +93,7 @@ export default function SkillDetailPage() {
                           <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={tooltipStyle} />
+                      <Tooltip {...CHART_TOOLTIP} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -119,7 +122,7 @@ export default function SkillDetailPage() {
                 <BarChart data={benchData}>
                   <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis domain={[0, 5]} tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#ffffff08' }} />
+                  <Tooltip {...CHART_TOOLTIP} cursor={{ fill: '#ffffff08' }} />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     <Cell fill="#2563EB" />
                     <Cell fill="#8B5CF6" />
@@ -166,6 +169,10 @@ export default function SkillDetailPage() {
 
       {tab === 'Level Definition' ? (
         <div className="space-y-3">
+          <p className="text-sm text-slate-400">
+            What each proficiency level means for <strong className="text-slate-200">{skill.name}</strong>.
+            Self, manager and mentor ratings on the Skills Passport all refer to this scale.
+          </p>
           {levelDefinitions.map((l) => (
             <Card key={l.level_no} className="flex gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/15 font-semibold text-accent-soft">
@@ -177,6 +184,12 @@ export default function SkillDetailPage() {
               </div>
             </Card>
           ))}
+          {levelDefinitions.length === 0 ? (
+            <EmptyState
+              title="No level definitions for this skill yet"
+              hint="Skills normally carry a 1–5 rubric. Run db/10_skill_level_backfill.sql to add the standard ladder."
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -239,14 +252,6 @@ export default function SkillDetailPage() {
     </div>
   );
 }
-
-const tooltipStyle = {
-  background: '#111A2C',
-  border: '1px solid #1E2A44',
-  borderRadius: 8,
-  color: '#e2e8f0',
-  fontSize: 12,
-};
 
 function Meta({ label, value }) {
   return (

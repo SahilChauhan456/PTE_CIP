@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 import { initials } from '@/lib/ui';
 
@@ -109,6 +110,122 @@ export function ErrorState({ error }) {
   return (
     <div className="rounded-xl border border-bad/30 bg-bad/10 p-4 text-sm text-bad">
       {error?.message || 'Something went wrong loading this data.'}
+    </div>
+  );
+}
+
+// Styled stand-in for window.confirm — centred, on-theme, and safe to open from
+// inside another modal. Renders nothing until `open`.
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  busyLabel = 'Working…',
+  tone = 'bad',
+  busy = false,
+  onConfirm,
+  onCancel,
+}) {
+  // Esc cancels, the one habit worth keeping from the native dialog.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, busy, onCancel]);
+
+  if (!open) return null;
+
+  const danger = tone === 'bad';
+
+  return (
+    <div
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      // Swallow the click: this usually sits on top of another modal whose own
+      // backdrop handler would otherwise close everything behind it.
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!busy) onCancel();
+      }}
+    >
+      <div className="animate-pop-in w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <Card>
+          <div className="flex items-start gap-3">
+            <span
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                danger ? 'bg-bad/15 text-bad' : 'bg-accent/15 text-accent-soft'
+              }`}
+            >
+              <AlertTriangle size={18} />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold text-white">{title}</h3>
+              {message ? <p className="mt-1 text-sm text-slate-400">{message}</p> : null}
+            </div>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button className="btn-ghost" onClick={onCancel} disabled={busy}>
+              {cancelLabel}
+            </button>
+            <button
+              className={
+                danger
+                  ? 'inline-flex items-center gap-2 rounded-lg bg-bad px-4 py-2 text-sm font-medium text-white transition hover:bg-bad/85 disabled:opacity-50'
+                  : 'btn-primary'
+              }
+              onClick={onConfirm}
+              disabled={busy}
+            >
+              {busy ? busyLabel : confirmLabel}
+            </button>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// Brief centred confirmation that something went through. Click-through by
+// design: it reports what already happened, so it must never block the UI.
+// Give it a `key` that changes per event so repeat messages restart the timer.
+export function Toast({ message, tone = 'good', duration = 2600, onDone }) {
+  // Held in a ref so an inline onDone arrow can't restart the timer on rerender.
+  const done = useRef(onDone);
+  done.current = onDone;
+
+  useEffect(() => {
+    if (!message) return undefined;
+    const timer = setTimeout(() => done.current && done.current(), duration);
+    return () => clearTimeout(timer);
+  }, [message, duration]);
+
+  if (!message) return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center p-4">
+      {/* A plain centred card gets read as page content — it lands mid-screen on
+          top of whatever card happens to be there, while the eye is still down
+          at the row that was just deleted. The scrim is what makes it register
+          as a popup. Visual only: the whole overlay stays click-through. */}
+      <div className="animate-fade-in absolute inset-0 bg-black/50" />
+      <div
+        className={`animate-pop-in relative flex items-center gap-4 rounded-2xl border bg-ink-800 px-7 py-5 shadow-2xl shadow-black/70 ${
+          tone === 'bad' ? 'border-bad/40' : 'border-good/40'
+        }`}
+      >
+        <span
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+            tone === 'bad' ? 'bg-bad/15 text-bad' : 'bg-good/15 text-good'
+          }`}
+        >
+          {tone === 'bad' ? <AlertTriangle size={22} /> : <CheckCircle2 size={22} />}
+        </span>
+        <span className="text-base font-semibold text-white">{message}</span>
+      </div>
     </div>
   );
 }

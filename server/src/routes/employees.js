@@ -6,7 +6,8 @@ const { query, pool } = require('../db');
 const { requireRole, requireSelfOrAdmin, requireVisible } = require('../middleware/auth');
 const { visibleIdsSql, canView, managerChain } = require('../lib/visibility');
 const { streamCvPdf, cvFileName } = require('../lib/cvPdf');
-const { uploadPublicFile } = require('../supabase');
+const { uploadPublicFile, removePublicFolder } = require('../supabase');
+const { insertDefaultLevelDefinitions } = require('../lib/skillLevels');
 
 const router = express.Router();
 
@@ -845,7 +846,7 @@ router.delete('/:id/education/:eduId', requireSelfOrAdmin(), async (req, res, ne
 router.post('/:id/skills', requireSelfOrAdmin(), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { skill_id, skill_name, self_level, comments } = req.body || {};
+    const { skill_id, skill_name, self_level, comments, category_id } = req.body || {};
     const level = Number(self_level);
 
     if (!skill_id && !(skill_name && skill_name.trim())) {
@@ -867,14 +868,35 @@ router.post('/:id/skills', requireSelfOrAdmin(), async (req, res, next) => {
         if (existing.rows.length) {
           resolvedId = existing.rows[0].id;
         } else {
+          // Only required on this branch: picking an existing library skill
+          // needs no category, and demanding one would be nonsense. Skills
+          // created without it are what left the library full of rows with an
+          // empty Category column (see db/11_skill_taxonomy_backfill.sql).
+          if (!category_id) {
+            const err = new Error('Pick a category — a new skill joins the company skill library');
+            err.status = 400;
+            throw err;
+          }
+          const cat = await client.query('SELECT id FROM skill_categories WHERE id = $1', [
+            category_id,
+          ]);
+          if (cat.rows.length === 0) {
+            const err = new Error('Unknown category');
+            err.status = 400;
+            throw err;
+          }
+
           const code = await uniqueSkillCode(client, name);
           const inserted = await client.query(
-            `INSERT INTO skills (code, name, description)
-             VALUES ($1, $2, 'Added from an employee profile')
+            `INSERT INTO skills (code, name, description, category_id)
+             VALUES ($1, $2, 'Added from an employee profile', $3)
              RETURNING id`,
-            [code, name]
+            [code, name, category_id]
           );
           resolvedId = inserted.rows[0].id;
+          // Same rubric the Skills Library route applies — without it the new
+          // skill's Level Definition tab is blank.
+          await insertDefaultLevelDefinitions(client, resolvedId);
           created = true;
         }
       }
@@ -972,6 +994,30 @@ router.post('/:id/photo', requireSelfOrAdmin(), uploadPhoto, async (req, res, ne
     const { rows } = await query(
       'UPDATE employees SET photo_url = $2 WHERE id = $1 RETURNING id, photo_url',
       [id, publicUrl]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/employees/:id/photo — clear the profile picture, for anyone who
+// would rather not have one. The stored objects are purged before the row is
+// updated: if the purge fails the profile still points at a live picture and
+// the call can simply be retried, whereas the other order would leave the file
+// public with nothing in the app still referencing it. A row left pointing at a
+// deleted object is the harmless direction — Avatar degrades to initials.
+router.delete('/:id/photo', requireSelfOrAdmin(), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    await removePublicFolder(`${id}/`);
+
+    const { rows } = await query(
+      'UPDATE employees SET photo_url = NULL WHERE id = $1 RETURNING id, photo_url',
+      [id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
 

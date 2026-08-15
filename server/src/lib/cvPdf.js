@@ -342,7 +342,16 @@ function stampFooters(doc, { header, generatedAt }) {
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i += 1) {
     doc.switchToPage(i);
-    const y = doc.page.height - doc.page.margins.bottom + 14;
+
+    // The footer deliberately sits below the bottom margin, and PDFKit treats
+    // writing there as content overflowing the page — so it starts a new page
+    // and puts the footer on that instead. Two text calls per page meant two
+    // blank pages appended to every CV. Zeroing the bottom margin for the
+    // duration of the write keeps each footer on the page it belongs to.
+    const bottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+
+    const y = doc.page.height - bottomMargin + 14;
     doc
       .font('Helvetica')
       .fontSize(7.5)
@@ -358,6 +367,8 @@ function stampFooters(doc, { header, generatedAt }) {
         align: 'right',
         lineBreak: false,
       });
+
+    doc.page.margins.bottom = bottomMargin;
   }
 }
 

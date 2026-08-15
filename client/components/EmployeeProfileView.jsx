@@ -1,11 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { BadgeCheck, Clock, Download, Loader2, Pencil, Plus, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { fetcher, api } from '@/lib/api';
-import { Card, Skeleton, ErrorState, Avatar, Badge, StatTile, ProgressBar } from '@/components/ui';
-import { formatDate, formatMonthYear, statusClasses, LEVEL_TITLES } from '@/lib/ui';
+import {
+  Card,
+  Skeleton,
+  ErrorState,
+  Avatar,
+  Badge,
+  StatTile,
+  ProgressBar,
+  ConfirmDialog,
+  Toast,
+} from '@/components/ui';
+import { formatDate, formatMonthYear, statusClasses, durationLabel, LEVEL_TITLES } from '@/lib/ui';
 import { useAuth } from '@/components/AuthProvider';
 import ProfileEditModal from '@/components/ProfileEditModal';
 import SelfSkillModal from '@/components/SelfSkillModal';
@@ -23,6 +33,12 @@ export default function EmployeeProfileView({ employeeId }) {
   const [modal, setModal] = useState(null); // 'edit' | 'skill' | 'verify'
   const [actionError, setActionError] = useState('');
   const [downloading, setDownloading] = useState(false);
+  // The skill awaiting delete confirmation, and whether its request is running.
+  const [pendingSkill, setPendingSkill] = useState(null);
+  const [removingSkill, setRemovingSkill] = useState(false);
+  // Keyed by id so the same message twice running restarts the popup.
+  const [toast, setToast] = useState(null);
+  const toastId = useRef(0);
 
   const isSelf = Boolean(user && employeeId && user.employee_id === employeeId);
   const canEdit = isSelf || (user?.roles || []).includes('admin');
@@ -81,14 +97,23 @@ export default function EmployeeProfileView({ employeeId }) {
     }
   }
 
-  async function removeSkill(skill) {
-    if (!window.confirm(`Remove "${skill.skill_name}" from this profile?`)) return;
+  async function confirmRemoveSkill() {
+    const skill = pendingSkill;
+    if (!skill) return;
     setActionError('');
+    setRemovingSkill(true);
     try {
       await api.del(`/employees/${employeeId}/skills/${skill.skill_id}`);
+      setPendingSkill(null);
+      toastId.current += 1;
+      setToast({ id: toastId.current, text: `“${skill.skill_name}” removed` });
       refresh();
     } catch (e) {
+      // Close the dialog so the error banner above the table is visible.
+      setPendingSkill(null);
       setActionError(e.message);
+    } finally {
+      setRemovingSkill(false);
     }
   }
 
@@ -353,7 +378,13 @@ export default function EmployeeProfileView({ employeeId }) {
                           ) : null}
                         </div>
                         <p className="text-xs text-slate-500">
-                          {[e.organization, dateRange(e.start_date, e.end_date)].filter(Boolean).join(' · ')}
+                          {[
+                            e.organization,
+                            dateRange(e.start_date, e.end_date),
+                            durationLabel(e.start_date, e.end_date),
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </p>
                         {e.description ? (
                           <p className="mt-1 whitespace-pre-line text-sm text-slate-400">{e.description}</p>
@@ -460,7 +491,7 @@ export default function EmployeeProfileView({ employeeId }) {
                   {canEdit ? (
                     <td className="td text-right">
                       <button
-                        onClick={() => removeSkill(s)}
+                        onClick={() => setPendingSkill(s)}
                         title="Remove from profile"
                         className="text-slate-500 transition hover:text-bad"
                       >
@@ -582,6 +613,25 @@ export default function EmployeeProfileView({ employeeId }) {
             refresh();
           }}
         />
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(pendingSkill)}
+        title="Remove this skill?"
+        message={
+          pendingSkill
+            ? `“${pendingSkill.skill_name}” will be removed from this profile, along with its self, manager and mentor ratings.`
+            : ''
+        }
+        confirmLabel="Remove"
+        busyLabel="Removing…"
+        busy={removingSkill}
+        onConfirm={confirmRemoveSkill}
+        onCancel={() => setPendingSkill(null)}
+      />
+
+      {toast ? (
+        <Toast key={toast.id} message={toast.text} onDone={() => setToast(null)} />
       ) : null}
     </div>
   );

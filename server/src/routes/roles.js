@@ -78,18 +78,42 @@ router.get('/:id', async (req, res, next) => {
       peopleParams
     );
 
+    // Per-skill gap for the Analytics tab: what the role demands against what
+    // the people actually holding it can do. Scoped like the two queries above,
+    // so the averages describe the caller's own organization. Ordered by the
+    // widest gap, which is the order the shortfall should be read in.
+    const gapParams = [id];
+    const gapsP = query(
+      `SELECT s.id AS skill_id, s.name AS skill_name, b.required_level, b.priority,
+              ROUND(AVG(COALESCE(m.effective_level, 0)), 1) AS avg_level,
+              COUNT(e.id) FILTER (WHERE COALESCE(m.effective_level, 0) >= b.required_level) AS meeting,
+              COUNT(e.id) AS people
+       FROM job_role_skill_benchmarks b
+       JOIN skills s ON s.id = b.skill_id
+       LEFT JOIN employees e
+              ON e.job_role_id = b.job_role_id
+             AND e.id IN (${visibleIdsSql(req.user, gapParams)})
+       LEFT JOIN v_employee_skill_matrix m
+              ON m.employee_id = e.id AND m.skill_id = b.skill_id
+       WHERE b.job_role_id = $1
+       GROUP BY s.id, s.name, b.required_level, b.priority
+       ORDER BY (b.required_level - AVG(COALESCE(m.effective_level, 0))) DESC, s.name`,
+      gapParams
+    );
+
     const trainingP = query(
       `SELECT id, title, course_type, delivery_mode, difficulty
        FROM training_courses WHERE linked_job_role_id = $1 ORDER BY title`,
       [id]
     );
 
-    const [role, skills, readiness, people, training] = await Promise.all([
+    const [role, skills, readiness, people, training, gaps] = await Promise.all([
       roleP,
       skillsP,
       readinessP,
       peopleP,
       trainingP,
+      gapsP,
     ]);
 
     if (role.rows.length === 0) {
@@ -102,6 +126,7 @@ router.get('/:id', async (req, res, next) => {
       peopleReadiness: readiness.rows[0] || {},
       people: people.rows,
       trainingPath: training.rows,
+      skillGaps: gaps.rows,
     });
   } catch (err) {
     next(err);

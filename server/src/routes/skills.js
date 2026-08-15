@@ -4,8 +4,10 @@
 // cares about, not people. Any per-employee count or list rolled up alongside it
 // is scoped to the caller's subtree.
 const express = require('express');
-const { query } = require('../db');
+const { query, pool } = require('../db');
 const { visibleIdsSql } = require('../lib/visibility');
+
+const { insertDefaultLevelDefinitions } = require('../lib/skillLevels');
 
 const router = express.Router();
 
@@ -225,13 +227,29 @@ router.post('/', async (req, res, next) => {
     if (!code || !name) {
       return res.status(400).json({ error: 'code and name are required' });
     }
-    const { rows } = await query(
-      `INSERT INTO skills (code, name, category_id, description, criticality, future_relevance)
-       VALUES ($1,$2,$3,$4,COALESCE($5,'Medium'),COALESCE($6,'Medium'))
-       RETURNING id, code, name`,
-      [code, name, category_id || null, description || null, criticality, future_relevance]
-    );
-    res.status(201).json(rows[0]);
+    // Skill + rubric go in together: a skill with no level definitions has an
+    // empty Level Definition tab and nothing for assessors to rate against.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const { rows } = await client.query(
+        `INSERT INTO skills (code, name, category_id, description, criticality, future_relevance)
+         VALUES ($1,$2,$3,$4,COALESCE($5,'Medium'),COALESCE($6,'Medium'))
+         RETURNING id, code, name`,
+        [code, name, category_id || null, description || null, criticality, future_relevance]
+      );
+
+      await insertDefaultLevelDefinitions(client, rows[0].id);
+
+      await client.query('COMMIT');
+      res.status(201).json(rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     next(err);
   }

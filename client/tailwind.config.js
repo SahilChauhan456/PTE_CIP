@@ -36,10 +36,21 @@ module.exports = {
           from: { transform: 'rotate(0deg)' },
           to: { transform: 'rotate(360deg)' },
         },
+        // Dialog / toast entrances.
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'pop-in': {
+          from: { opacity: '0', transform: 'scale(0.94)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
         float: 'float 7s ease-in-out infinite',
         'spin-slow': 'spin-slow 60s linear infinite',
+        'fade-in': 'fade-in 120ms ease-out',
+        'pop-in': 'pop-in 170ms cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
   },

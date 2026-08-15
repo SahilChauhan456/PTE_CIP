@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { mutate } from 'swr';
 import { Camera, Plus, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { Card, Avatar } from '@/components/ui';
+import { Card, Avatar, ConfirmDialog, Toast } from '@/components/ui';
 
 // Self-service CV editor: profile picture, typed CV header, experience and
 // education. Each section saves on its own, so nothing is lost if one fails.
@@ -26,17 +26,32 @@ export default function ProfileEditModal({
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+
+  // One toast for the whole editor. The id makes the same message shown twice
+  // in a row count as two events, so the popup restarts instead of expiring on
+  // the first timer.
+  const [toast, setToast] = useState(null);
+  const toastId = useRef(0);
+  const [closeConfirm, setCloseConfirm] = useState(false);
+
+  function notify(text) {
+    toastId.current += 1;
+    setToast({ id: toastId.current, text });
+  }
 
   const set = (k) => (e) => {
     setBasics({ ...basics, [k]: e.target.value });
     setDirty(true);
-    setSaved(false);
   };
 
+  // Only the Summary & Contact fields are held locally; every other section
+  // saves per row, so `dirty` is the one thing a close could actually lose.
   function requestClose() {
-    if (dirty && !window.confirm('Your summary changes are not saved yet. Close anyway?')) return;
+    if (dirty) {
+      setCloseConfirm(true);
+      return;
+    }
     onClose();
   }
 
@@ -46,7 +61,7 @@ export default function ProfileEditModal({
     try {
       await api.put(`/employees/${employeeId}/cv`, basics);
       setDirty(false);
-      setSaved(true);
+      notify('Details saved');
       onChanged();
     } catch (e) {
       setErr(e.message);
@@ -56,6 +71,7 @@ export default function ProfileEditModal({
   }
 
   return (
+    <>
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/60 p-4" onClick={requestClose}>
       <div className="my-6 w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
         <Card>
@@ -75,6 +91,7 @@ export default function ProfileEditModal({
             name={header.full_name}
             photoUrl={header.photo_url}
             onChanged={onChanged}
+            notify={notify}
           />
 
           <Section title="Summary & Contact">
@@ -113,7 +130,6 @@ export default function ProfileEditModal({
             </div>
             {err ? <p className="mt-2 text-xs text-bad">{err}</p> : null}
             <div className="mt-3 flex items-center justify-end gap-3">
-              {saved ? <span className="text-xs text-good">Saved</span> : null}
               <button className="btn-primary" onClick={saveBasics} disabled={saving || !dirty}>
                 {saving ? 'Saving…' : 'Save Details'}
               </button>
@@ -128,6 +144,7 @@ export default function ProfileEditModal({
             fields={EXPERIENCE_FIELDS}
             requiredKey="title"
             onChanged={onChanged}
+            notify={notify}
           />
 
           <ListEditor
@@ -138,6 +155,7 @@ export default function ProfileEditModal({
             fields={EDUCATION_FIELDS}
             requiredKey="degree"
             onChanged={onChanged}
+            notify={notify}
           />
 
           <div className="mt-5 flex justify-end">
@@ -148,6 +166,26 @@ export default function ProfileEditModal({
         </Card>
       </div>
     </div>
+
+    {/* Both sit outside the overlay above, whose backdrop handler would
+        otherwise treat a click on them as "close the editor". */}
+    <ConfirmDialog
+      open={closeConfirm}
+      title="Discard unsaved changes?"
+      message="Your summary and contact edits have not been saved yet. Everything else in this editor is already saved."
+      confirmLabel="Discard"
+      cancelLabel="Keep editing"
+      onConfirm={() => {
+        setCloseConfirm(false);
+        onClose();
+      }}
+      onCancel={() => setCloseConfirm(false)}
+    />
+
+    {toast ? (
+      <Toast key={toast.id} message={toast.text} onDone={() => setToast(null)} />
+    ) : null}
+    </>
   );
 }
 
@@ -175,10 +213,12 @@ const EDUCATION_FIELDS = [
 ];
 
 // Add / edit / delete rows of one CV section. Each row saves independently.
-function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onChanged }) {
+function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onChanged, notify }) {
   const counter = useRef(0);
   const [rows, setRows] = useState(() => items.map((it) => ({ ...it, _key: `saved-${it.id}` })));
   const [busyKey, setBusyKey] = useState(null);
+  // The row waiting on the delete confirmation, if any.
+  const [pending, setPending] = useState(null);
   const [err, setErr] = useState('');
 
   const requiredLabel = (fields.find((f) => f.key === requiredKey)?.label || 'This field').replace(' *', '');
@@ -197,6 +237,9 @@ function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onC
       setErr(`${requiredLabel} is required`);
       return;
     }
+    // Captured before the await: the row is replaced by the server copy below,
+    // which always has an id, so afterwards there is no telling the two apart.
+    const isNew = !row.id;
     setBusyKey(row._key);
     setErr('');
     try {
@@ -212,6 +255,7 @@ function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onC
       setRows((prev) =>
         prev.map((r) => (r._key === row._key ? { ...result, _key: `saved-${result.id}` } : r))
       );
+      notify(`${title} entry ${isNew ? 'added' : 'saved'}`);
       onChanged();
     } catch (e) {
       setErr(e.message);
@@ -220,24 +264,38 @@ function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onC
     }
   }
 
-  async function remove(row) {
+  // A row that was never saved has nothing to delete server-side, so it just
+  // disappears — no point asking about it.
+  function askRemove(row) {
     if (!row.id) {
       setRows((prev) => prev.filter((r) => r._key !== row._key));
       return;
     }
-    if (!window.confirm('Remove this entry?')) return;
+    setErr('');
+    setPending(row);
+  }
+
+  async function confirmRemove() {
+    const row = pending;
+    if (!row) return;
     setBusyKey(row._key);
     setErr('');
     try {
       await api.del(`${basePath}/${row.id}`);
       setRows((prev) => prev.filter((r) => r._key !== row._key));
+      setPending(null);
+      notify(`${title} entry deleted`);
       onChanged();
     } catch (e) {
+      // Close the dialog so the inline error underneath is actually readable.
+      setPending(null);
       setErr(e.message);
     } finally {
       setBusyKey(null);
     }
   }
+
+  const pendingLabel = pending ? String(pending[requiredKey] || '').trim() : '';
 
   return (
     <Section title={title}>
@@ -270,7 +328,7 @@ function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onC
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
                 className="btn-ghost text-bad"
-                onClick={() => remove(row)}
+                onClick={() => askRemove(row)}
                 disabled={busyKey === row._key}
               >
                 <Trash2 size={14} /> Remove
@@ -289,15 +347,35 @@ function ListEditor({ title, addLabel, basePath, items, fields, requiredKey, onC
           <Plus size={14} /> {addLabel}
         </button>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pending)}
+        title={`Delete this ${title.toLowerCase()} entry?`}
+        message={
+          pendingLabel
+            ? `“${pendingLabel}” will be permanently removed from your profile.`
+            : 'This entry will be permanently removed from your profile.'
+        }
+        confirmLabel="Delete"
+        busyLabel="Deleting…"
+        busy={Boolean(pending) && busyKey === pending._key}
+        onConfirm={confirmRemove}
+        onCancel={() => setPending(null)}
+      />
     </Section>
   );
 }
 
-// Profile picture: preview, pick, upload to Supabase Storage.
-function PhotoSection({ employeeId, name, photoUrl, onChanged }) {
-  const [preview, setPreview] = useState(photoUrl || '');
+// Profile picture: preview, pick, upload to Supabase Storage, or remove.
+function PhotoSection({ employeeId, name, photoUrl, onChanged, notify }) {
+  // `stored` is the picture saved on the profile, `preview` a pick that has not
+  // been uploaded yet. Keeping them apart is what lets Remove know whether there
+  // is really something stored to delete, rather than just a local preview.
+  const [stored, setStored] = useState(photoUrl || '');
+  const [preview, setPreview] = useState('');
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [err, setErr] = useState('');
 
   function pick(e) {
@@ -316,8 +394,10 @@ function PhotoSection({ employeeId, name, photoUrl, onChanged }) {
       const form = new FormData();
       form.append('file', file);
       const result = await api.upload(`/employees/${employeeId}/photo`, form);
-      setPreview(result.photo_url);
+      setStored(result.photo_url);
+      setPreview('');
       setFile(null);
+      notify('Profile picture updated');
       // The topbar avatar reads /employees/me, so refresh that too — otherwise
       // the new picture shows on the profile but the header keeps the old one.
       mutate('/employees/me');
@@ -329,13 +409,37 @@ function PhotoSection({ employeeId, name, photoUrl, onChanged }) {
     }
   }
 
+  // Nobody is obliged to have a picture: this clears it and falls back to
+  // initials. The file is deleted from storage too, not just unlinked here.
+  async function remove() {
+    setBusy(true);
+    setErr('');
+    try {
+      await api.del(`/employees/${employeeId}/photo`);
+      setStored('');
+      setPreview('');
+      setFile(null);
+      setConfirming(false);
+      notify('Profile picture removed');
+      mutate('/employees/me');
+      onChanged();
+    } catch (e) {
+      setConfirming(false);
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const shown = preview || stored;
+
   return (
     <Section title="Profile Picture">
       <div className="flex flex-wrap items-center gap-4">
-        <Avatar name={name} src={preview} size={64} />
+        <Avatar name={name} src={shown} size={64} />
         <div>
           <label className="btn-ghost cursor-pointer">
-            <Camera size={14} /> Choose image
+            <Camera size={14} /> {shown ? 'Change image' : 'Choose image'}
             <input type="file" accept="image/*" className="hidden" onChange={pick} />
           </label>
           <p className="mt-1.5 text-xs text-slate-500">PNG, JPG, WEBP or GIF · up to 5 MB</p>
@@ -345,8 +449,24 @@ function PhotoSection({ employeeId, name, photoUrl, onChanged }) {
             {busy ? 'Uploading…' : 'Upload'}
           </button>
         ) : null}
+        {stored && !file ? (
+          <button className="btn-ghost text-bad" onClick={() => setConfirming(true)} disabled={busy}>
+            <Trash2 size={14} /> Remove photo
+          </button>
+        ) : null}
       </div>
       {err ? <p className="mt-2 text-xs text-bad">{err}</p> : null}
+
+      <ConfirmDialog
+        open={confirming}
+        title="Remove your profile picture?"
+        message="The image is deleted from storage and your initials are shown instead. You can upload a new one at any time."
+        confirmLabel="Remove"
+        busyLabel="Removing…"
+        busy={busy}
+        onConfirm={remove}
+        onCancel={() => setConfirming(false)}
+      />
     </Section>
   );
 }

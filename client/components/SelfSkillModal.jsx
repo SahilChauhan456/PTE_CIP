@@ -15,8 +15,12 @@ export default function SelfSkillModal({ employeeId, onClose, onSaved }) {
   const [selected, setSelected] = useState(null);
   const [level, setLevel] = useState(3);
   const [comments, setComments] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+
+  // Only needed when typing a name that isn't in the library yet.
+  const { data: categories } = useSWR('/skills/categories', fetcher);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(term.trim()), 300);
@@ -37,7 +41,7 @@ export default function SelfSkillModal({ employeeId, onClose, onSaved }) {
     setErr('');
     try {
       await api.post(`/employees/${employeeId}/skills`, {
-        ...(selected ? { skill_id: selected.id } : { skill_name: typed }),
+        ...(selected ? { skill_id: selected.id } : { skill_name: typed, category_id: categoryId }),
         self_level: level,
         comments: comments || null,
       });
@@ -111,13 +115,34 @@ export default function SelfSkillModal({ employeeId, onClose, onSaved }) {
               </div>
 
               {canCreate ? (
-                <p className="mb-3 flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn">
-                  <Plus size={14} className="mt-0.5 shrink-0" />
-                  <span>
-                    “{typed}” isn’t in the library yet — saving will add it as a new skill and put it on
-                    your passport.
-                  </span>
-                </p>
+                <>
+                  <p className="mb-3 flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn">
+                    <Plus size={14} className="mt-0.5 shrink-0" />
+                    <span>
+                      “{typed}” isn’t in the library yet — saving will add it as a new skill and put it on
+                      your passport.
+                    </span>
+                  </p>
+                  {/* Required: this row joins the company-wide library, and one
+                      with no category shows up blank in the Skills Library. */}
+                  <div className="mb-3">
+                    <label className="mb-1.5 block text-xs font-medium text-slate-400">
+                      Category for the new skill *
+                    </label>
+                    <select
+                      className="input"
+                      value={categoryId}
+                      onChange={(e) => setCategoryId(e.target.value)}
+                    >
+                      <option value="">Choose a category…</option>
+                      {(categories || []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
               ) : null}
             </>
           )}
@@ -158,7 +183,11 @@ export default function SelfSkillModal({ employeeId, onClose, onSaved }) {
             <button className="btn-ghost" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn-primary" onClick={save} disabled={saving || (!selected && typed.length < 2)}>
+            <button
+              className="btn-primary"
+              onClick={save}
+              disabled={saving || (!selected && typed.length < 2) || (canCreate && !categoryId)}
+            >
               <Check size={14} /> {saving ? 'Saving…' : 'Add to Passport'}
             </button>
           </div>

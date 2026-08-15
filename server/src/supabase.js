@@ -1,6 +1,3 @@
-// Supabase Storage client (service-role) used for profile picture uploads.
-// The DB itself is reached over plain Postgres in db.js — this client exists
-// only so the API can push files into a Storage bucket and hand back a URL.
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -47,4 +44,43 @@ async function uploadPublicFile(path, buffer, contentType) {
   return data.publicUrl;
 }
 
-module.exports = { supabase, uploadPublicFile, BUCKET, storageConfigured: configured };
+// Deletes every stored object under `prefix` (e.g. "<employeeId>/") and returns
+// how many were removed. Clearing a profile picture has to purge the objects,
+// not just the DB pointer — the bucket is public, so an un-deleted file stays
+// reachable by url forever, which defeats the point of removing it.
+async function removePublicFolder(prefix) {
+  if (!supabase) return 0;
+
+  let removed = 0;
+  // list() pages at 100. Delete each page and re-list from the top until the
+  // folder is empty; the page cap only guards against looping forever if a
+  // delete ever silently no-ops.
+  for (let page = 0; page < 20; page += 1) {
+    const { data, error } = await supabase.storage.from(BUCKET).list(prefix, { limit: 100 });
+    if (error) {
+      const err = new Error(`Could not list stored files: ${error.message}`);
+      err.status = 502;
+      throw err;
+    }
+    if (!data || data.length === 0) return removed;
+
+    const paths = data.map((entry) => `${prefix}${entry.name}`);
+    const { error: removeError } = await supabase.storage.from(BUCKET).remove(paths);
+    if (removeError) {
+      const err = new Error(`Could not delete stored files: ${removeError.message}`);
+      err.status = 502;
+      throw err;
+    }
+    removed += paths.length;
+  }
+
+  return removed;
+}
+
+module.exports = {
+  supabase,
+  uploadPublicFile,
+  removePublicFolder,
+  BUCKET,
+  storageConfigured: configured,
+};

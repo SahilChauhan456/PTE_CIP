@@ -4,10 +4,21 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Legend,
+} from 'recharts';
 import { fetcher } from '@/lib/api';
-import { Card, Skeleton, ErrorState, Badge, ProgressBar } from '@/components/ui';
-import { criticalityClasses } from '@/lib/ui';
+import { Card, Skeleton, ErrorState, Badge, ProgressBar, StatTile, EmptyState } from '@/components/ui';
+import { criticalityClasses, CHART_TOOLTIP } from '@/lib/ui';
 
 const TABS = ['Overview', 'Skills', 'Training Path', 'People', 'Analytics'];
 const READINESS_COLORS = ['#22C55E', '#F59E0B', '#06B6D4', '#3B82F6'];
@@ -20,7 +31,17 @@ export default function RoleDetailPage() {
   if (error) return <ErrorState error={error} />;
   if (isLoading || !data) return <Skeleton className="h-96" />;
 
-  const { role, mandatorySkills, peopleReadiness, people, trainingPath } = data;
+  // skillGaps is newer than the rest of the payload; default it so an older API
+  // response cannot blank the page.
+  const { role, mandatorySkills, peopleReadiness, people, trainingPath, skillGaps = [] } = data;
+
+  // Ordered widest-gap-first by the API, so the first row is the biggest shortfall.
+  const gapData = skillGaps.map((g) => ({
+    name: g.skill_name,
+    Required: Number(g.required_level) || 0,
+    'Team average': Number(g.avg_level) || 0,
+  }));
+  const widestGap = skillGaps[0];
 
   const readinessData = [
     { name: 'Ready Now', value: Number(peopleReadiness.ready_now) || 0 },
@@ -90,7 +111,7 @@ export default function RoleDetailPage() {
                           <Cell key={i} fill={READINESS_COLORS[i]} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={tooltipStyle} />
+                      <Tooltip {...CHART_TOOLTIP} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -162,7 +183,108 @@ export default function RoleDetailPage() {
         </div>
       ) : null}
 
-      {tab === 'People' || tab === 'Analytics' ? (
+      {tab === 'Analytics' ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              value={people.length}
+              label="People Mapped"
+              hint={people.length === 1 ? '1 person holds this role' : 'hold this role'}
+            />
+            <StatTile
+              value={`${Number(peopleReadiness.avg_readiness) || 0}%`}
+              label="Avg Readiness"
+              hint="required levels met"
+              tone={Number(peopleReadiness.avg_readiness) >= 75 ? 'good' : 'warn'}
+            />
+            <StatTile
+              value={Number(peopleReadiness.ready_now) || 0}
+              label="Ready Now"
+              hint="meet every requirement"
+              tone="good"
+            />
+            <StatTile
+              value={widestGap ? `L${(widestGap.required_level - Number(widestGap.avg_level)).toFixed(1)}` : '—'}
+              label="Widest Gap"
+              hint={widestGap ? widestGap.skill_name : 'No requirements set'}
+              tone="bad"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card>
+              <h3 className="text-base font-semibold text-white">Required vs Team Average</h3>
+              <p className="mb-3 text-xs text-slate-500">
+                What the role demands against the average level of the people in it.
+              </p>
+              {gapData.length ? (
+                // Horizontal bars: skill names are long, and they read far better
+                // down the axis than rotated under a vertical chart.
+                <div style={{ height: Math.max(200, gapData.length * 58) }}>
+                  <ResponsiveContainer>
+                    <BarChart data={gapData} layout="vertical" margin={{ left: 4, right: 16, top: 4 }}>
+                      <XAxis
+                        type="number"
+                        domain={[0, 5]}
+                        tickCount={6}
+                        tick={{ fill: '#94a3b8', fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={140}
+                        tick={{ fill: '#cbd5e1', fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip {...CHART_TOOLTIP} cursor={{ fill: '#ffffff08' }} />
+                      <Legend wrapperStyle={{ fontSize: 12, color: '#cbd5e1' }} />
+                      <Bar dataKey="Required" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={10} />
+                      <Bar dataKey="Team average" fill="#22C55E" radius={[0, 4, 4, 0]} barSize={10} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <EmptyState title="No skill requirements" hint="Add benchmarks to this role to see the gap." />
+              )}
+            </Card>
+
+            <Card>
+              <h3 className="text-base font-semibold text-white">Skill Coverage</h3>
+              <p className="mb-3 text-xs text-slate-500">
+                How many of the people in this role already meet each required level.
+              </p>
+              {skillGaps.length ? (
+                <div className="space-y-4">
+                  {skillGaps.map((g) => {
+                    const pct = g.people ? Math.round((g.meeting / g.people) * 100) : 0;
+                    return (
+                      <div key={g.skill_id}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="text-slate-300">{g.skill_name}</span>
+                          <span className="text-xs text-slate-400">
+                            {g.meeting}/{g.people} at L{g.required_level}
+                          </span>
+                        </div>
+                        <ProgressBar
+                          value={pct}
+                          color={pct >= 75 ? 'bg-good' : pct >= 40 ? 'bg-warn' : 'bg-bad'}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState title="Nothing to measure yet" hint="This role has no skill benchmarks." />
+              )}
+            </Card>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'People' ? (
         <Card className="overflow-x-auto p-0">
           <table className="w-full">
             <thead className="border-b border-line">
@@ -208,10 +330,3 @@ export default function RoleDetailPage() {
   );
 }
 
-const tooltipStyle = {
-  background: '#111A2C',
-  border: '1px solid #1E2A44',
-  borderRadius: 8,
-  color: '#e2e8f0',
-  fontSize: 12,
-};

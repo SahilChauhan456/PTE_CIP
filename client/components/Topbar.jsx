@@ -31,10 +31,6 @@ export default function Topbar({ title }) {
       <h2 className="truncate text-lg font-semibold text-white">{title}</h2>
 
       <div className="flex items-center gap-3">
-        <div className="hidden items-center gap-2 rounded-lg border border-line bg-ink-900 px-3 py-1.5 text-sm text-slate-300 sm:flex">
-          FY26 <ChevronDown size={14} className="text-slate-500" />
-        </div>
-
         <button className="relative rounded-lg border border-line bg-ink-900 p-2 text-slate-300 hover:text-white">
           <Bell size={18} />
           {unread > 0 ? (
