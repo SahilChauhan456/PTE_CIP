@@ -172,7 +172,7 @@ function AddEmployeeModal({ onClose, onCreated }) {
               <input className="input" placeholder="AM / DM / Manager" value={form.grade} onChange={set('grade')} />
             </Field>
             <Field label="Joining Date">
-              <input className="input" type="date" value={form.joining_date} onChange={set('joining_date')} />
+              <input className="input" style={{ colorScheme: 'dark' }} type="date" value={form.joining_date} onChange={set('joining_date')} />
             </Field>
             <Field label="Department">
               <select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value, team_id: '' })}>

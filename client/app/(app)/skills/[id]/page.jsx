@@ -123,7 +123,7 @@ export default function SkillDetailPage() {
                   <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis domain={[0, 5]} tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <Tooltip {...CHART_TOOLTIP} cursor={{ fill: '#ffffff08' }} />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                  <Bar dataKey="value" label={{ fill: '#FFFFFF', fontSize: 12 }} radius={[6, 6, 0, 0]}>
                     <Cell fill="#2563EB" />
                     <Cell fill="#8B5CF6" />
                   </Bar>

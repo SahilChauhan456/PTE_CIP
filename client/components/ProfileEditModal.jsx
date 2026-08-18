@@ -114,7 +114,21 @@ export default function ProfileEditModal({
                 />
               </Labeled>
               <Labeled label="Phone">
-                <input className="input" placeholder="+91 98xxxxxxxx" value={basics.phone} onChange={set('phone')} />
+                <input
+                  className="input"
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="+91 98xxxxxxxx"
+                  value={basics.phone}
+                  onChange={(e) => {
+                    // Keep the separators people actually type, drop the rest, and
+                    // stop at 10 digits so the field cannot take a bad number.
+                    const filtered = e.target.value.replace(/[^0-9+\s()\-]/g, '');
+                    if (filtered.replace(/\D/g, '').length <= 10) {
+                      set('phone')({ target: { value: filtered } });
+                    }
+                  }}
+                />
               </Labeled>
               <Labeled label="Location">
                 <input className="input" placeholder="Gurugram" value={basics.location_text} onChange={set('location_text')} />
