@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 // disabled this import is the only thing pulling in @react-oauth/google, and it
 // fails to resolve until that package is installed. Uncomment both together.
 // import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
-import { Zap, ShieldCheck, Mail, Lock, Loader2 } from 'lucide-react';
+import { Zap, ShieldCheck, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
 import { api, setSession, getToken } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   // The globe artwork lives at /public/earth.png; fall back to the inline SVG if it is missing.
   const [artOk, setArtOk] = useState(true);
 
@@ -115,14 +116,26 @@ export default function LoginPage() {
                   className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
                 />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  className="w-full rounded-xl border border-line bg-ink-800/70 py-2.5 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-accent focus:ring-1 focus:ring-accent"
+                  className="w-full rounded-xl border border-line bg-ink-800/70 py-2.5 pl-9 pr-10 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-accent focus:ring-1 focus:ring-accent"
                 />
+                {/* type="button" so it never submits the form; tabIndex={-1} keeps
+                    Tab going straight from password to Sign in. */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-500 transition hover:text-slate-300"
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
 
               <button
