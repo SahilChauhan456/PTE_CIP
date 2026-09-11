@@ -8,12 +8,18 @@ import {
   BookOpen,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock,
+  FileText,
   GraduationCap,
+  Image as ImageIcon,
   Layers,
+  Link as LinkIcon,
   Loader2,
   User,
+  Video,
+  X,
 } from 'lucide-react';
 import { fetcher, api } from '@/lib/api';
 import { PageHeader, Skeleton, ErrorState, ProgressBar, Badge, Card, EmptyState } from '@/components/ui';
@@ -36,9 +42,11 @@ export default function LearningModulePage() {
   const employeeId = user?.employee_id;
   const key = employeeId ? `/learning-module/${employeeId}` : null;
   const { data, error, isLoading } = useSWR(key, fetcher);
+  const { data: dynamicCourses, error: dynamicError } = useSWR('/learning-module/dynamic/published-courses', fetcher);
   const [view, setView] = useState('My Modules');
+  const [selectedCourse, setSelectedCourse] = useState(null);
 
-  if (error) return <ErrorState error={error} />;
+  if (error || dynamicError) return <ErrorState error={error || dynamicError} />;
 
   return (
     <div>
@@ -74,7 +82,7 @@ export default function LearningModulePage() {
                 {v}
                 <span className="ml-2 text-xs text-slate-500">
                   {v === 'My Modules'
-                    ? data.courses.length
+                    ? data.courses.length + (dynamicCourses?.length || 0)
                     : Object.values(data.columns).reduce((n, c) => n + c.length, 0)}
                 </span>
               </button>
@@ -82,12 +90,30 @@ export default function LearningModulePage() {
           </div>
 
           {view === 'My Modules' ? (
-            <CourseList courses={data.courses} swrKey={key} />
+            <>
+              {/* Dynamic admin-created courses */}
+              {dynamicCourses && dynamicCourses.length > 0 ? (
+                <DynamicCourseList 
+                  courses={dynamicCourses} 
+                  onSelectCourse={setSelectedCourse}
+                />
+              ) : null}
+              
+              {/* Traditional enrolled courses */}
+              <CourseList courses={data.courses} swrKey={key} />
+            </>
           ) : (
             <PlanBoard columns={data.columns} swrKey={key} employeeId={employeeId} />
           )}
         </>
       )}
+
+      {selectedCourse ? (
+        <DynamicCourseModal 
+          course={selectedCourse} 
+          onClose={() => setSelectedCourse(null)} 
+        />
+      ) : null}
     </div>
   );
 }
@@ -493,6 +519,258 @@ function PlanItem({ item }) {
           <span className="text-xs text-slate-400">{item.progress_percent || 0}%</span>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
+// Dynamic Course List (admin-created courses)
+// ---------------------------------------------------------------
+
+function DynamicCourseList({ courses, onSelectCourse }) {
+  if (!courses || courses.length === 0) return null;
+
+  return (
+    <div className="mb-6 space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Available Courses ({courses.length})
+      </h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {courses.map((course) => (
+          <Card 
+            key={course.id} 
+            className="cursor-pointer p-0 transition hover:border-accent-soft"
+            onClick={() => onSelectCourse(course)}
+          >
+            {course.cover_image_url ? (
+              <div className="h-40 overflow-hidden rounded-t-lg border-b border-line bg-ink-900">
+                <img
+                  src={course.cover_image_url}
+                  alt={course.title}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="flex h-40 items-center justify-center rounded-t-lg border-b border-line bg-gradient-to-br from-accent/20 to-accent/5">
+                <BookOpen size={32} className="text-accent-soft" />
+              </div>
+            )}
+            <div className="p-4">
+              <h3 className="font-semibold text-white">{course.title}</h3>
+              {course.short_description ? (
+                <p className="mt-2 text-sm text-slate-400 line-clamp-2">
+                  {course.short_description}
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                {course.category ? <span className="chip bg-accent/10 text-accent-soft">{course.category}</span> : null}
+                {course.instructor_name ? <span>by {course.instructor_name}</span> : null}
+                {course.duration_hours ? <span>{course.duration_hours}hrs</span> : null}
+                {course.content_items?.length ? (
+                  <span className="chip bg-slate-500/15 text-slate-400">
+                    {course.content_items.length} lessons
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Dynamic Course Modal (view course content)
+function DynamicCourseModal({ course, onClose }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const content = course.content_items || [];
+  const currentItem = content[currentIndex];
+
+  if (!currentItem) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+        <Card className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-line pb-4">
+            <h2 className="text-xl font-semibold text-white">{course.title}</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+          <p className="mt-4 text-slate-400">This course has no content yet.</p>
+        </Card>
+      </div>
+    );
+  }
+
+  function renderContent(item) {
+    switch (item.content_type) {
+      case 'video':
+        if (item.video_url) {
+          const youtubeMatch = item.video_url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+          if (youtubeMatch) {
+            return (
+              <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
+                <iframe
+                  src={`https://www.youtube.com/embed/${youtubeMatch[1]}`}
+                  className="h-full w-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            );
+          }
+          return (
+            <video controls className="w-full rounded-lg bg-black">
+              <source src={item.video_url} />
+              Your browser does not support the video tag.
+            </video>
+          );
+        }
+        return <p className="text-slate-500">Video not available</p>;
+
+      case 'image':
+        return item.image_url ? (
+          <img src={item.image_url} alt={item.title} className="w-full rounded-lg" />
+        ) : (
+          <p className="text-slate-500">Image not available</p>
+        );
+
+      case 'pdf':
+        return item.pdf_url ? (
+          <div className="flex flex-col items-center gap-4">
+            <embed src={item.pdf_url} type="application/pdf" className="h-[500px] w-full rounded-lg" />
+            <a
+              href={item.pdf_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+            >
+              Open PDF in New Tab
+            </a>
+          </div>
+        ) : (
+          <p className="text-slate-500">PDF not available</p>
+        );
+
+      case 'text':
+        return (
+          <div className="prose prose-invert max-w-none">
+            <p className="whitespace-pre-wrap text-slate-300">{item.text_content}</p>
+          </div>
+        );
+
+      case 'link':
+        return item.external_url ? (
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-slate-400">External resource:</p>
+            <a
+              href={item.external_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary"
+            >
+              Open Link
+            </a>
+            <p className="text-xs text-slate-500">{item.external_url}</p>
+          </div>
+        ) : (
+          <p className="text-slate-500">Link not available</p>
+        );
+
+      default:
+        return <p className="text-slate-500">Unsupported content type</p>;
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-line bg-ink-800 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-line px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">{course.title}</h2>
+            <p className="text-sm text-slate-400">
+              Lesson {currentIndex + 1} of {content.length}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-80 overflow-y-auto border-r border-line bg-ink-900/50 p-4">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Course Content
+            </h3>
+            <div className="space-y-2">
+              {content.map((item, index) => {
+                const Icon = {
+                  video: Video,
+                  image: ImageIcon,
+                  pdf: FileText,
+                  text: FileText,
+                  link: LinkIcon,
+                }[item.content_type] || FileText;
+
+                return (
+                  <button
+                    key={item.id}
+                    className={`flex w-full items-start gap-3 rounded-lg p-3 text-left transition ${
+                      index === currentIndex
+                        ? 'bg-accent/20 text-white ring-1 ring-accent-soft'
+                        : 'text-slate-400 hover:bg-ink-700/40 hover:text-slate-200'
+                    }`}
+                    onClick={() => setCurrentIndex(index)}
+                  >
+                    <Icon size={16} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{item.title}</p>
+                      {item.duration_minutes ? (
+                        <p className="text-xs text-slate-500">{item.duration_minutes} min</p>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="mb-4">
+              <h3 className="text-xl font-semibold text-white">{currentItem.title}</h3>
+              {currentItem.description ? (
+                <p className="mt-2 text-sm text-slate-400">{currentItem.description}</p>
+              ) : null}
+            </div>
+            {renderContent(currentItem)}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-line px-6 py-4">
+          <button
+            className="btn-secondary"
+            onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+            disabled={currentIndex === 0}
+          >
+            <ChevronLeft size={16} />
+            Previous
+          </button>
+          <span className="text-sm text-slate-500">
+            {currentIndex + 1} / {content.length}
+          </span>
+          <button
+            className="btn-secondary"
+            onClick={() => setCurrentIndex(Math.min(content.length - 1, currentIndex + 1))}
+            disabled={currentIndex === content.length - 1}
+          >
+            Next
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

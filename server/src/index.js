@@ -16,6 +16,7 @@ const employeesRoutes = require('./routes/employees');
 const trainingRoutes = require('./routes/training');
 const learningPlanRoutes = require('./routes/learningPlan');
 const learningModuleRoutes = require('./routes/learningModule');
+const learningModuleDynamicRoutes = require('./routes/learningModuleDynamic');
 const mentorRoutes = require('./routes/mentor');
 const certificationsRoutes = require('./routes/certifications');
 const roadmapRoutes = require('./routes/roadmap');
@@ -23,6 +24,7 @@ const inboxRoutes = require('./routes/inbox');
 const verificationRoutes = require('./routes/verification');
 const courseDevRoutes = require('./routes/courseDevelopment');
 const adminRoutes = require('./routes/admin');
+const adminCoursesRoutes = require('./routes/adminCourses');
 
 const app = express();
 
@@ -77,6 +79,7 @@ app.use('/api/employees', employeesRoutes);
 app.use('/api/training', trainingRoutes);
 app.use('/api/learning-plan', learningPlanRoutes);
 app.use('/api/learning-module', learningModuleRoutes);
+app.use('/api/learning-module/dynamic', learningModuleDynamicRoutes);
 app.use('/api/mentor', mentorRoutes);
 app.use('/api/certifications', certificationsRoutes);
 app.use('/api/roadmap', roadmapRoutes);
@@ -84,6 +87,7 @@ app.use('/api/inbox', inboxRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/course-development', courseDevRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/courses', adminCoursesRoutes);
 
 // 404 for unknown API routes.
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
