@@ -67,7 +67,7 @@ router.get('/:id', async (req, res, next) => {
     const { id } = req.params;
 
     const courseQuery = await query(
-      `SELECT tc.* FROM training_courses tc WHERE tc.id = $1 AND tc.is_admin_created = $1`,
+      `SELECT tc.* FROM training_courses tc WHERE tc.id = $1 AND tc.is_admin_created = $2`,
       [id, true]
     );
 

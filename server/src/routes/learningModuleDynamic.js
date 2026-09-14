@@ -99,10 +99,57 @@ router.get('/published-courses', async (req, res, next) => {
 router.get('/course/:courseId', async (req, res, next) => {
   try {
     const { courseId } = req.params;
-    const { rows } = await query(
-      `${PUBLISHED_COURSES_SQL.replace('ORDER BY tc.created_at DESC', 'AND tc.id = $3')}`,
-      [true, 'Published', courseId]
-    );
+    
+    const SINGLE_COURSE_SQL = sql({
+      pg: `
+      SELECT tc.id, tc.course_code, tc.title, tc.short_description, tc.description,
+             tc.course_type, tc.delivery_mode, tc.duration_hours, tc.difficulty,
+             tc.cover_image_url, tc.category, tc.instructor_name, tc.created_at,
+             COALESCE((
+               SELECT json_agg(json_build_object(
+                        'id',                cci.id,
+                        'content_type',      cci.content_type,
+                        'title',             cci.title,
+                        'description',       cci.description,
+                        'display_order',     cci.display_order,
+                        'video_url',         cci.video_url,
+                        'image_url',         cci.image_url,
+                        'pdf_url',           cci.pdf_url,
+                        'text_content',      cci.text_content,
+                        'external_url',      cci.external_url,
+                        'duration_minutes',  cci.duration_minutes)
+                      ORDER BY cci.display_order)
+               FROM course_content_items cci
+               WHERE cci.course_id = tc.id
+             ), '[]'::json) AS content_items
+      FROM training_courses tc
+      WHERE tc.is_admin_created = $1 AND tc.status = $2 AND tc.id = $3`,
+      mssql: `
+      SELECT tc.id, tc.course_code, tc.title, tc.short_description, tc.description,
+             tc.course_type, tc.delivery_mode, tc.duration_hours, tc.difficulty,
+             tc.cover_image_url, tc.category, tc.instructor_name, tc.created_at,
+             COALESCE((
+               SELECT cci.id                AS id,
+                      cci.content_type       AS content_type,
+                      cci.title              AS title,
+                      cci.description        AS description,
+                      cci.display_order      AS display_order,
+                      cci.video_url          AS video_url,
+                      cci.image_url          AS image_url,
+                      cci.pdf_url            AS pdf_url,
+                      cci.text_content       AS text_content,
+                      cci.external_url       AS external_url,
+                      cci.duration_minutes   AS duration_minutes
+               FROM course_content_items cci
+               WHERE cci.course_id = tc.id
+               ORDER BY cci.display_order
+               FOR JSON PATH, INCLUDE_NULL_VALUES
+             ), '[]') AS content_items
+      FROM training_courses tc
+      WHERE tc.is_admin_created = $1 AND tc.status = $2 AND tc.id = $3`,
+    });
+    
+    const { rows } = await query(SINGLE_COURSE_SQL, [true, 'Published', courseId]);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Course not found' });
