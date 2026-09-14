@@ -665,34 +665,112 @@ function DynamicCourseModal({ course, onClose }) {
         );
 
       case 'link':
-        return item.external_url ? (
-          <div className="space-y-4">
-            <div className="overflow-hidden rounded-lg border border-line bg-white">
-              <iframe
-                src={item.external_url}
-                className="h-[600px] w-full"
-                title={item.title}
-                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-                loading="lazy"
-              />
+        if (item.external_url) {
+          // Check if it's a YouTube URL - convert to embed
+          const youtubeMatch = item.external_url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+          if (youtubeMatch) {
+            return (
+              <div className="space-y-4">
+                <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
+                  <iframe
+                    src={`https://www.youtube.com/embed/${youtubeMatch[1]}`}
+                    className="h-full w-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-line bg-ink-900/50 p-3">
+                  <p className="text-sm text-slate-400">YouTube Video</p>
+                  <a
+                    href={item.external_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary text-xs"
+                  >
+                    <LinkIcon size={14} />
+                    Watch on YouTube
+                  </a>
+                </div>
+              </div>
+            );
+          }
+
+          // Check if it's a Vimeo URL - convert to embed
+          const vimeoMatch = item.external_url.match(/vimeo\.com\/(\d+)/);
+          if (vimeoMatch) {
+            return (
+              <div className="space-y-4">
+                <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
+                  <iframe
+                    src={`https://player.vimeo.com/video/${vimeoMatch[1]}`}
+                    className="h-full w-full"
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-line bg-ink-900/50 p-3">
+                  <p className="text-sm text-slate-400">Vimeo Video</p>
+                  <a
+                    href={item.external_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary text-xs"
+                  >
+                    <LinkIcon size={14} />
+                    Watch on Vimeo
+                  </a>
+                </div>
+              </div>
+            );
+          }
+
+          // For other URLs, try iframe embed with fallback
+          return (
+            <div className="space-y-4">
+              <div className="overflow-hidden rounded-lg border border-line bg-white">
+                <iframe
+                  src={item.external_url}
+                  className="h-[600px] w-full"
+                  title={item.title}
+                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                  loading="lazy"
+                  onError={(e) => {
+                    // Hide iframe on error and show fallback
+                    e.target.style.display = 'none';
+                    const fallback = e.target.nextElementSibling;
+                    if (fallback) fallback.style.display = 'flex';
+                  }}
+                />
+                <div 
+                  className="hidden h-[600px] flex-col items-center justify-center gap-4 bg-ink-900/50 p-8 text-center"
+                >
+                  <LinkIcon size={48} className="text-slate-600" />
+                  <div>
+                    <p className="text-sm font-medium text-slate-300">
+                      This website cannot be embedded
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Some websites block embedding for security. Click below to open in a new tab.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-line bg-ink-900/50 p-3">
+                <p className="break-all text-sm text-slate-400">{item.external_url}</p>
+                <a
+                  href={item.external_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary shrink-0 text-xs"
+                >
+                  <LinkIcon size={14} />
+                  Open in New Tab
+                </a>
+              </div>
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-line bg-ink-900/50 p-3">
-              <p className="text-sm text-slate-400">External Resource</p>
-              <a
-                href={item.external_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary text-xs"
-              >
-                <LinkIcon size={14} />
-                Open in New Tab
-              </a>
-            </div>
-            <p className="break-all text-xs text-slate-500">{item.external_url}</p>
-          </div>
-        ) : (
-          <p className="text-slate-500">Link not available</p>
-        );
+          );
+        }
+        return <p className="text-slate-500">Link not available</p>;
 
       default:
         return <p className="text-slate-500">Unsupported content type</p>;
