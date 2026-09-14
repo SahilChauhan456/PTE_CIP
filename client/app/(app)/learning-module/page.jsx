@@ -82,7 +82,7 @@ export default function LearningModulePage() {
                 {v}
                 <span className="ml-2 text-xs text-slate-500">
                   {v === 'My Modules'
-                    ? data.courses.length + (dynamicCourses?.length || 0)
+                    ? dynamicCourses?.length || 0
                     : Object.values(data.columns).reduce((n, c) => n + c.length, 0)}
                 </span>
               </button>
@@ -97,10 +97,15 @@ export default function LearningModulePage() {
                   courses={dynamicCourses} 
                   onSelectCourse={setSelectedCourse}
                 />
-              ) : null}
+              ) : (
+                <EmptyState
+                  title="No courses available yet"
+                  hint="Ask your admin to create and publish courses in the Learning Module."
+                />
+              )}
               
-              {/* Traditional enrolled courses */}
-              <CourseList courses={data.courses} swrKey={key} />
+              {/* Hide traditional enrolled courses - replaced by dynamic courses */}
+              {/* <CourseList courses={data.courses} swrKey={key} /> */}
             </>
           ) : (
             <PlanBoard columns={data.columns} swrKey={key} employeeId={employeeId} />
@@ -537,13 +542,13 @@ function DynamicCourseList({ courses, onSelectCourse }) {
       </h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {courses.map((course) => (
-          <Card 
-            key={course.id} 
-            className="cursor-pointer p-0 transition hover:border-accent-soft"
+          <div
+            key={course.id}
+            className="cursor-pointer overflow-hidden rounded-xl border border-line bg-ink-800 transition hover:border-accent-soft"
             onClick={() => onSelectCourse(course)}
           >
             {course.cover_image_url ? (
-              <div className="h-40 overflow-hidden rounded-t-lg border-b border-line bg-ink-900">
+              <div className="h-40 overflow-hidden border-b border-line bg-ink-900">
                 <img
                   src={course.cover_image_url}
                   alt={course.title}
@@ -551,7 +556,7 @@ function DynamicCourseList({ courses, onSelectCourse }) {
                 />
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center rounded-t-lg border-b border-line bg-gradient-to-br from-accent/20 to-accent/5">
+              <div className="flex h-40 items-center justify-center border-b border-line bg-gradient-to-br from-accent/20 to-accent/5">
                 <BookOpen size={32} className="text-accent-soft" />
               </div>
             )}
@@ -573,7 +578,7 @@ function DynamicCourseList({ courses, onSelectCourse }) {
                 ) : null}
               </div>
             </div>
-          </Card>
+          </div>
         ))}
       </div>
     </div>
