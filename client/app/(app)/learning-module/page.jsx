@@ -666,17 +666,29 @@ function DynamicCourseModal({ course, onClose }) {
 
       case 'link':
         return item.external_url ? (
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-slate-400">External resource:</p>
-            <a
-              href={item.external_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-primary"
-            >
-              Open Link
-            </a>
-            <p className="text-xs text-slate-500">{item.external_url}</p>
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-lg border border-line bg-white">
+              <iframe
+                src={item.external_url}
+                className="h-[600px] w-full"
+                title={item.title}
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                loading="lazy"
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-line bg-ink-900/50 p-3">
+              <p className="text-sm text-slate-400">External Resource</p>
+              <a
+                href={item.external_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-xs"
+              >
+                <LinkIcon size={14} />
+                Open in New Tab
+              </a>
+            </div>
+            <p className="break-all text-xs text-slate-500">{item.external_url}</p>
           </div>
         ) : (
           <p className="text-slate-500">Link not available</p>
