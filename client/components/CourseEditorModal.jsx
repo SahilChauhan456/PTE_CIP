@@ -28,6 +28,7 @@ const CONTENT_TYPES = [
 
 export default function CourseEditorModal({ mode = 'create', courseId, onClose, onSuccess }) {
   const [step, setStep] = useState(1); // 1: Course Details, 2: Content Management
+  const [activeCourseId, setActiveCourseId] = useState(courseId || null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -49,15 +50,16 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
   const [deleteContent, setDeleteContent] = useState(null);
 
   useEffect(() => {
-    if (mode === 'edit' && courseId) {
+    if (mode === 'edit' && activeCourseId) {
       loadCourse();
     }
-  }, [mode, courseId]);
+  }, [mode, activeCourseId]);
 
   async function loadCourse() {
     setBusy(true);
     try {
-      const data = await fetcher(`/admin/courses/${courseId}`);
+      if (!activeCourseId) return;
+      const data = await fetcher(`/admin/courses/${activeCourseId}`);
       const { course, content: courseContent } = data;
       setTitle(course.title || '');
       setShortDescription(course.short_description || '');
@@ -98,8 +100,10 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
       let savedCourse;
       if (mode === 'create') {
         savedCourse = await api.post('/admin/courses', payload);
+        if (!savedCourse?.id) throw new Error('Course was created without an ID');
+        setActiveCourseId(savedCourse.id);
       } else {
-        savedCourse = await api.patch(`/admin/courses/${courseId}`, payload);
+        savedCourse = await api.patch(`/admin/courses/${activeCourseId}`, payload);
       }
 
       // Upload thumbnail if provided
@@ -152,10 +156,10 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
 
     // Save to server
     try {
-      await api.patch(`/admin/courses/${courseId}/content/${newContent[index].id}`, {
+      await api.patch(`/admin/courses/${activeCourseId}/content/${newContent[index].id}`, {
         display_order: newContent[index].display_order,
       });
-      await api.patch(`/admin/courses/${courseId}/content/${newContent[targetIndex].id}`, {
+      await api.patch(`/admin/courses/${activeCourseId}/content/${newContent[targetIndex].id}`, {
         display_order: newContent[targetIndex].display_order,
       });
     } catch (err) {
@@ -167,7 +171,7 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
     if (!deleteContent) return;
     setBusy(true);
     try {
-      await api.del(`/admin/courses/${courseId}/content/${deleteContent.id}`);
+      await api.del(`/admin/courses/${activeCourseId}/content/${deleteContent.id}`);
       setContent(content.filter((c) => c.id !== deleteContent.id));
       setDeleteContent(null);
     } catch (err) {
@@ -177,7 +181,7 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
     }
   }
 
-  const canGoToContent = mode === 'edit' || (mode === 'create' && courseId);
+  const canGoToContent = mode === 'edit' || (mode === 'create' && activeCourseId);
 
   return (
     <div
@@ -342,7 +346,7 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
             </div>
           ) : (
             <ContentManager
-              courseId={courseId}
+              courseId={activeCourseId}
               content={content}
               setContent={setContent}
               onMove={handleMoveContent}

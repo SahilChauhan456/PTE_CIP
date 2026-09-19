@@ -17,6 +17,8 @@ import {
   Layers,
   Link as LinkIcon,
   Loader2,
+  Maximize2,
+  Minimize2,
   User,
   Video,
   X,
@@ -45,6 +47,7 @@ export default function LearningModulePage() {
   const { data: dynamicCourses, error: dynamicError } = useSWR('/learning-module/dynamic/published-courses', fetcher);
   const [view, setView] = useState('My Modules');
   const [selectedCourse, setSelectedCourse] = useState(null);
+  const dynamicKey = '/learning-module/dynamic/published-courses';
 
   if (error || dynamicError) return <ErrorState error={error || dynamicError} />;
 
@@ -66,7 +69,7 @@ export default function LearningModulePage() {
         </div>
       ) : (
         <>
-          <StatsStrip stats={data.stats} />
+          <StatsStrip courses={dynamicCourses || []} />
 
           <div className="mb-5 flex flex-wrap gap-1 border-b border-line">
             {VIEWS.map((v) => (
@@ -116,7 +119,12 @@ export default function LearningModulePage() {
       {selectedCourse ? (
         <DynamicCourseModal 
           course={selectedCourse} 
-          onClose={() => setSelectedCourse(null)} 
+          onClose={() => setSelectedCourse(null)}
+          onCourseUpdate={(updated) => {
+            setSelectedCourse(updated);
+            mutate(dynamicKey);
+            mutate(key);
+          }}
         />
       ) : null}
     </div>
@@ -125,16 +133,28 @@ export default function LearningModulePage() {
 
 // ---------------------------------------------------------------
 
-function StatsStrip({ stats }) {
-  const done = Number(stats.modules_done) || 0;
-  const total = Number(stats.modules_total) || 0;
+function StatsStrip({ courses }) {
+  const total = courses.reduce((sum, course) => sum + (course.content_items?.length || 0), 0);
+  const done = courses.reduce(
+    (sum, course) => sum + (course.content_items || []).filter((item) => item.completed_at).length,
+    0
+  );
+  const completedCourses = courses.filter(
+    (course) => course.content_items?.length > 0 && course.content_items.every((item) => item.completed_at)
+  ).length;
+  const hoursDone = courses.reduce(
+    (sum, course) => (course.content_items?.length && course.content_items.every((item) => item.completed_at)
+      ? sum + Number(course.duration_hours || 0)
+      : sum),
+    0
+  );
   const pct = total ? Math.round((done / total) * 100) : 0;
 
   const tiles = [
     { icon: Layers, label: 'Modules done', value: total ? `${done}/${total}` : '—', tone: 'accent' },
-    { icon: BookOpen, label: 'Active courses', value: stats.active_courses ?? 0, tone: 'warn' },
-    { icon: GraduationCap, label: 'Courses completed', value: stats.completed_courses ?? 0, tone: 'good' },
-    { icon: Clock, label: 'Hours completed', value: Math.round(Number(stats.hours_done) || 0), tone: 'accent' },
+    { icon: BookOpen, label: 'Active courses', value: courses.length, tone: 'warn' },
+    { icon: GraduationCap, label: 'Courses completed', value: completedCourses, tone: 'good' },
+    { icon: Clock, label: 'Hours completed', value: Math.round(hoursDone * 100) / 100, tone: 'accent' },
   ];
   const tones = {
     accent: 'bg-accent/15 text-accent-soft',
@@ -577,6 +597,17 @@ function DynamicCourseList({ courses, onSelectCourse }) {
                   </span>
                 ) : null}
               </div>
+              {course.content_items?.length ? (
+                <div className="mt-3 flex items-center gap-2">
+                  <ProgressBar
+                    value={Math.round((course.content_items.filter((item) => item.completed_at).length / course.content_items.length) * 100)}
+                    color="bg-good"
+                  />
+                  <span className="shrink-0 text-xs text-slate-500">
+                    {course.content_items.filter((item) => item.completed_at).length}/{course.content_items.length}
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
         ))}
@@ -586,10 +617,39 @@ function DynamicCourseList({ courses, onSelectCourse }) {
 }
 
 // Dynamic Course Modal (view course content)
-function DynamicCourseModal({ course, onClose }) {
+function DynamicCourseModal({ course, onClose, onCourseUpdate }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [progressBusy, setProgressBusy] = useState(false);
   const content = course.content_items || [];
   const currentItem = content[currentIndex];
+
+  async function toggleCurrentProgress() {
+    setProgressBusy(true);
+    try {
+      const path = `/learning-module/dynamic/course/${course.id}/content/${currentItem.id}/progress`;
+      await (currentItem.completed_at ? api.del(path) : api.put(path, {}));
+      const updated = await api.get(`/learning-module/dynamic/course/${course.id}`);
+      onCourseUpdate(updated);
+    } finally {
+      setProgressBusy(false);
+    }
+  }
+
+  async function completeCourse() {
+    setProgressBusy(true);
+    try {
+      for (const item of content) {
+        if (!item.completed_at) {
+          await api.put(`/learning-module/dynamic/course/${course.id}/content/${item.id}/progress`, {});
+        }
+      }
+      const updated = await api.get(`/learning-module/dynamic/course/${course.id}`);
+      onCourseUpdate(updated);
+    } finally {
+      setProgressBusy(false);
+    }
+  }
 
   if (!currentItem) {
     return (
@@ -658,11 +718,7 @@ function DynamicCourseModal({ course, onClose }) {
         );
 
       case 'text':
-        return (
-          <div className="prose prose-invert max-w-none">
-            <p className="whitespace-pre-wrap text-slate-300">{item.text_content}</p>
-          </div>
-        );
+        return <TextContent content={item.text_content} />;
 
       case 'link':
         if (item.external_url) {
@@ -822,7 +878,10 @@ function DynamicCourseModal({ course, onClose }) {
                   >
                     <Icon size={16} className="mt-0.5 shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{item.title}</p>
+                      <p className="flex items-center gap-2 text-sm font-medium">
+                        {item.title}
+                        {item.completed_at ? <Check size={14} className="shrink-0 text-good" /> : null}
+                      </p>
                       {item.duration_minutes ? (
                         <p className="text-xs text-slate-500">{item.duration_minutes} min</p>
                       ) : null}
@@ -834,13 +893,29 @@ function DynamicCourseModal({ course, onClose }) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-4">
-              <h3 className="text-xl font-semibold text-white">{currentItem.title}</h3>
-              {currentItem.description ? (
-                <p className="mt-2 text-sm text-slate-400">{currentItem.description}</p>
-              ) : null}
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-white">{currentItem.title}</h3>
+                {currentItem.description ? (
+                  <p className="mt-2 text-sm text-slate-400">{currentItem.description}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn-ghost shrink-0"
+                title="View content full screen"
+                onClick={() => setIsFullscreen(true)}
+              >
+                <Maximize2 size={16} />
+              </button>
             </div>
             {renderContent(currentItem)}
+            <div className="mt-5 flex justify-end">
+              <button type="button" className="btn-secondary" onClick={toggleCurrentProgress} disabled={progressBusy}>
+                {progressBusy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                {currentItem.completed_at ? 'Mark as not done' : 'Mark lesson done'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -853,9 +928,18 @@ function DynamicCourseModal({ course, onClose }) {
             <ChevronLeft size={16} />
             Previous
           </button>
-          <span className="text-sm text-slate-500">
-            {currentIndex + 1} / {content.length}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              onClick={completeCourse}
+              disabled={progressBusy || content.every((item) => item.completed_at)}
+            >
+              <Check size={14} />
+              {content.every((item) => item.completed_at) ? 'Course completed' : 'Complete course'}
+            </button>
+            <span className="text-sm text-slate-500">{currentIndex + 1} / {content.length}</span>
+          </div>
           <button
             className="btn-secondary"
             onClick={() => setCurrentIndex(Math.min(content.length - 1, currentIndex + 1))}
@@ -866,6 +950,46 @@ function DynamicCourseModal({ course, onClose }) {
           </button>
         </div>
       </div>
+      {isFullscreen ? (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-ink-950 p-4" onClick={() => setIsFullscreen(false)}>
+          <div className="mb-3 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+            <h3 className="truncate text-base font-semibold text-white">{currentItem.title}</h3>
+            <button
+              type="button"
+              className="btn-ghost"
+              title="Exit full screen"
+              onClick={() => setIsFullscreen(false)}
+            >
+              <Minimize2 size={16} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto" onClick={(e) => e.stopPropagation()}>
+            {renderContent(currentItem)}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TextContent({ content }) {
+  const lines = (content || '').split(/\r?\n/);
+
+  return (
+    <div className="space-y-3 text-slate-300">
+      {lines.map((line, index) => {
+        const heading = line.match(/^(#{1,3})\s+(.+)$/);
+        if (heading) {
+          const Heading = heading[1].length === 1 ? 'h2' : heading[1].length === 2 ? 'h3' : 'h4';
+          return <Heading key={index} className="font-semibold text-white">{heading[2]}</Heading>;
+        }
+
+        if (/^[-*]\s+/.test(line)) {
+          return <li key={index} className="ml-5 list-disc">{line.replace(/^[-*]\s+/, '')}</li>;
+        }
+
+        return line.trim() ? <p key={index}>{line}</p> : <div key={index} className="h-1" />;
+      })}
     </div>
   );
 }
