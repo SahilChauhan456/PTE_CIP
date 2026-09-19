@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS content_item_progress (
 CREATE INDEX IF NOT EXISTS idx_content_item_progress_enrollment
   ON content_item_progress(enrollment_id);
 
+-- Admin-created courses are available directly to employees and do not need
+-- a legacy training_enrollments row before their content can be completed.
+CREATE TABLE IF NOT EXISTS employee_content_progress (
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  content_item_id UUID NOT NULL REFERENCES course_content_items(id) ON DELETE CASCADE,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (employee_id, content_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_content_progress_employee
+  ON employee_content_progress(employee_id);
+
 -- Recompute course progress from completed content items
 CREATE OR REPLACE FUNCTION sync_content_progress(p_enrollment_id UUID)
 RETURNS INT AS $$

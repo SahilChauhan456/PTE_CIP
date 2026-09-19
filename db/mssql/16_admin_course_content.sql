@@ -68,6 +68,21 @@ BEGIN
 END
 GO
 
+-- Admin-created courses are available directly to employees and do not need
+-- a legacy training_enrollments row before their content can be completed.
+IF OBJECT_ID('dbo.employee_content_progress', 'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.employee_content_progress (
+    employee_id UNIQUEIDENTIFIER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    content_item_id UNIQUEIDENTIFIER NOT NULL REFERENCES course_content_items(id) ON DELETE CASCADE,
+    completed_at DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+    PRIMARY KEY (employee_id, content_item_id)
+  );
+
+  CREATE INDEX idx_employee_content_progress_employee ON employee_content_progress(employee_id);
+END
+GO
+
 -- Track completion of content items
 IF OBJECT_ID('dbo.content_item_progress', 'U') IS NULL
 BEGIN

@@ -151,15 +151,15 @@ Run this verification query:
 SELECT column_name 
 FROM information_schema.columns 
 WHERE table_name = 'training_courses' 
-  AND column_name IN ('short_description', 'cover_image_url', 'is_admin_created');
+  AND column_name IN ('short_description', 'cover_image_url', 'thumbnail_path', 'category', 'instructor_name', 'is_admin_created');
 
 -- Check if new tables exist
 SELECT table_name 
 FROM information_schema.tables 
-WHERE table_name IN ('course_content_items', 'content_item_progress');
+WHERE table_name IN ('course_content_items', 'content_item_progress', 'employee_content_progress');
 ```
 
-You should see 3 columns and 2 tables in the results.
+You should see 6 columns and 3 tables in the results.
 
 ### Step 6: Restart Your App
 After the migration completes:

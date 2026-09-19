@@ -10,5 +10,6 @@
   // None of these are real: every file in db/ has been run against the live
   // database, twice each, with no error. Turning off the T-SQL error checker
   // stops the false positives; syntax highlighting is unaffected.
-  "mssql.intelliSense.enableErrorChecking": false
+  "mssql.intelliSense.enableErrorChecking": false,
+  "chat.disableAIFeatures": false
 }
