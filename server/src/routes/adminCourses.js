@@ -7,6 +7,11 @@ const { requireRole } = require('../middleware/auth');
 const storage = require('../storage');
 
 const router = express.Router();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return UUID_RE.test(String(value || ''));
+}
 
 // Only admins and roles specified in ADMIN_COURSE_ROLES can access these routes
 function checkAdminCourseAccess(req, res, next) {
@@ -230,9 +235,13 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    if (!isUuid(id)) {
+      return res.status(400).json({ error: 'Invalid course ID' });
+    }
+
     // Get all content items to delete associated files
     const contentQuery = await query(
-      `SELECT video_file_path, image_file_path, pdf_file_path, thumbnail_path
+      `SELECT video_file_path, image_file_path, pdf_file_path
        FROM course_content_items WHERE course_id = $1`,
       [id]
     );
@@ -242,17 +251,6 @@ router.delete('/:id', async (req, res, next) => {
       if (row.video_file_path) filePaths.push(row.video_file_path);
       if (row.image_file_path) filePaths.push(row.image_file_path);
       if (row.pdf_file_path) filePaths.push(row.pdf_file_path);
-      if (row.thumbnail_path) filePaths.push(row.thumbnail_path);
-    }
-
-    // Get course thumbnail
-    const courseQuery = await query(
-      `SELECT thumbnail_path FROM training_courses WHERE id = $1 AND is_admin_created = $2`,
-      [id, true]
-    );
-
-    if (courseQuery.rows.length > 0 && courseQuery.rows[0].thumbnail_path) {
-      filePaths.push(courseQuery.rows[0].thumbnail_path);
     }
 
     // Delete course (cascade will delete content items)
@@ -286,27 +284,24 @@ router.post('/:id/thumbnail', upload.single('file'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    if (!isUuid(id)) {
+      return res.status(400).json({ error: 'Invalid course ID' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Delete old thumbnail if exists
+    // The public URL is the source of truth for course thumbnails. Do not read
+    // the optional thumbnail_path column here so older databases can still
+    // upload and replace thumbnails safely.
     const oldQuery = await query(
-      `SELECT thumbnail_path FROM training_courses WHERE id = $1 AND is_admin_created = $2`,
+      `SELECT id FROM training_courses WHERE id = $1 AND is_admin_created = $2`,
       [id, true]
     );
 
     if (oldQuery.rows.length === 0) {
       return res.status(404).json({ error: 'Course not found' });
-    }
-
-    const oldPath = oldQuery.rows[0].thumbnail_path;
-    if (oldPath) {
-      try {
-        await storage.removePublicFiles([oldPath]);
-      } catch (err) {
-        console.error('[adminCourses] failed to delete old thumbnail:', err);
-      }
     }
 
     // Upload new thumbnail
@@ -316,9 +311,9 @@ router.post('/:id/thumbnail', upload.single('file'), async (req, res, next) => {
 
     // Update course
     const { rows } = await query(
-      `UPDATE training_courses SET cover_image_url = $1, thumbnail_path = $2 
-       WHERE id = $3 AND is_admin_created = $4 RETURNING *`,
-      [publicUrl, key, id, true]
+      `UPDATE training_courses SET cover_image_url = $1
+       WHERE id = $2 AND is_admin_created = $3 RETURNING *`,
+      [publicUrl, id, true]
     );
 
     return res.json(rows[0]);
@@ -331,6 +326,10 @@ router.post('/:id/thumbnail', upload.single('file'), async (req, res, next) => {
 router.post('/:id/content', upload.single('file'), async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    if (!isUuid(id)) {
+      return res.status(400).json({ error: 'Invalid course ID' });
+    }
     const { content_type, title, description, video_url, external_url, text_content, duration_minutes } =
       req.body;
 
@@ -381,7 +380,7 @@ router.post('/:id/content', upload.single('file'), async (req, res, next) => {
         title.trim(),
         description || null,
         display_order,
-        content_type === 'video' && video_url ? video_url : null,
+        content_type === 'video' && (video_url || fileUrl) ? video_url || fileUrl : null,
         content_type === 'video' && filePath ? filePath : null,
         content_type === 'image' && fileUrl ? fileUrl : null,
         content_type === 'image' && filePath ? filePath : null,
