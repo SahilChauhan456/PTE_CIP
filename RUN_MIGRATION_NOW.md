@@ -1,6 +1,7 @@
 # 🚨 IMPORTANT: Run This Migration NOW
 
 ## Error You're Seeing:
+
 ```
 column tc.short_description does not exist
 ```
@@ -10,11 +11,13 @@ This means the database migration hasn't been run yet.
 ## Solution (2 Minutes):
 
 ### Step 1: Go to Supabase Dashboard
+
 1. Open your browser
 2. Go to: https://supabase.com
 3. Click on your project: **PTE CIP**
 
 ### Step 2: Open SQL Editor
+
 1. In the left sidebar, click **SQL Editor**
 2. Click **+ New query**
 
@@ -45,29 +48,29 @@ CREATE TABLE IF NOT EXISTS course_content_items (
   title TEXT NOT NULL,
   description TEXT,
   display_order INT NOT NULL,
-  
+
   -- Video content
   video_url TEXT,
   video_file_path TEXT,
-  
+
   -- Image content
   image_url TEXT,
   image_file_path TEXT,
-  
+
   -- PDF content
   pdf_url TEXT,
   pdf_file_path TEXT,
-  
+
   -- Text/rich content
   text_content TEXT,
-  
+
   -- External link
   external_url TEXT,
-  
+
   duration_minutes INT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
+
   UNIQUE(course_id, display_order)
 );
 
@@ -77,8 +80,8 @@ CREATE INDEX IF NOT EXISTS idx_course_content_items_order
   ON course_content_items(course_id, display_order);
 
 DROP TRIGGER IF EXISTS trg_course_content_items_updated_at ON course_content_items;
-CREATE TRIGGER trg_course_content_items_updated_at 
-  BEFORE UPDATE ON course_content_items 
+CREATE TRIGGER trg_course_content_items_updated_at
+  BEFORE UPDATE ON course_content_items
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- Track completion of content items
@@ -139,29 +142,32 @@ $$ LANGUAGE plpgsql;
 ```
 
 ### Step 4: Run the SQL
+
 1. Click the **RUN** button (or press F5)
 2. Wait for it to complete (should take 1-2 seconds)
 3. You should see: **Success. No rows returned**
 
 ### Step 5: Verify It Worked
+
 Run this verification query:
 
 ```sql
 -- Check if new columns exist
-SELECT column_name 
-FROM information_schema.columns 
-WHERE table_name = 'training_courses' 
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'training_courses'
   AND column_name IN ('short_description', 'cover_image_url', 'thumbnail_path', 'category', 'instructor_name', 'is_admin_created');
 
 -- Check if new tables exist
-SELECT table_name 
-FROM information_schema.tables 
+SELECT table_name
+FROM information_schema.tables
 WHERE table_name IN ('course_content_items', 'content_item_progress', 'employee_content_progress');
 ```
 
 You should see 6 columns and 3 tables in the results.
 
 ### Step 6: Restart Your App
+
 After the migration completes:
 
 ```bash
@@ -176,6 +182,7 @@ Then refresh your browser at: http://localhost:3000/learning-module
 ## ✅ Success Indicators
 
 After migration:
+
 - ✅ No more "column does not exist" errors
 - ✅ Learning Module page loads without errors
 - ✅ You can access `/admin/learning` (if you're an admin)
@@ -183,11 +190,13 @@ After migration:
 ## ❌ If You Still See Errors
 
 Check these:
+
 1. **Did the SQL run successfully in Supabase?**
    - Look for green success message
    - No red error messages
 
 2. **Did you restart the server?**
+
    ```bash
    cd /Users/laps/PTE_CIP/server
    # Kill the current process (Ctrl+C)
@@ -201,6 +210,7 @@ Check these:
 ## Need Help?
 
 If migration fails, check:
+
 - You're connected to the correct Supabase project
 - The `training_courses` table exists
 - The `set_updated_at()` function exists (from earlier migrations)

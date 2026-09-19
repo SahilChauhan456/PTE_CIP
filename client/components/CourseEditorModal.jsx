@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 import {
   X,
   Upload,
@@ -14,34 +14,39 @@ import {
   Link as LinkIcon,
   ChevronUp,
   ChevronDown,
-} from 'lucide-react';
-import { api, fetcher } from '@/lib/api';
-import { Card, Badge, ConfirmDialog } from '@/components/ui';
+} from "lucide-react";
+import { api, fetcher } from "@/lib/api";
+import { Card, Badge, ConfirmDialog } from "@/components/ui";
 
 const CONTENT_TYPES = [
-  { value: 'video', label: 'Video', icon: Video },
-  { value: 'image', label: 'Image', icon: ImageIcon },
-  { value: 'pdf', label: 'PDF', icon: FileText },
-  { value: 'text', label: 'Text/Rich Content', icon: FileText },
-  { value: 'link', label: 'External Link', icon: LinkIcon },
+  { value: "video", label: "Video", icon: Video },
+  { value: "image", label: "Image", icon: ImageIcon },
+  { value: "pdf", label: "PDF", icon: FileText },
+  { value: "text", label: "Text/Rich Content", icon: FileText },
+  { value: "link", label: "External Link", icon: LinkIcon },
 ];
 
-export default function CourseEditorModal({ mode = 'create', courseId, onClose, onSuccess }) {
+export default function CourseEditorModal({
+  mode = "create",
+  courseId,
+  onClose,
+  onSuccess,
+}) {
   const [step, setStep] = useState(1); // 1: Course Details, 2: Content Management
   const [activeCourseId, setActiveCourseId] = useState(courseId || null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   // Course details
-  const [title, setTitle] = useState('');
-  const [shortDescription, setShortDescription] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
-  const [instructorName, setInstructorName] = useState('');
-  const [durationHours, setDurationHours] = useState('');
-  const [difficulty, setDifficulty] = useState('');
+  const [title, setTitle] = useState("");
+  const [shortDescription, setShortDescription] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [instructorName, setInstructorName] = useState("");
+  const [durationHours, setDurationHours] = useState("");
+  const [difficulty, setDifficulty] = useState("");
   const [thumbnailFile, setThumbnailFile] = useState(null);
-  const [thumbnailPreview, setThumbnailPreview] = useState('');
+  const [thumbnailPreview, setThumbnailPreview] = useState("");
 
   // Content management
   const [content, setContent] = useState([]);
@@ -50,7 +55,7 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
   const [deleteContent, setDeleteContent] = useState(null);
 
   useEffect(() => {
-    if (mode === 'edit' && activeCourseId) {
+    if (mode === "edit" && activeCourseId) {
       loadCourse();
     }
   }, [mode, activeCourseId]);
@@ -61,14 +66,14 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
       if (!activeCourseId) return;
       const data = await fetcher(`/admin/courses/${activeCourseId}`);
       const { course, content: courseContent } = data;
-      setTitle(course.title || '');
-      setShortDescription(course.short_description || '');
-      setDescription(course.description || '');
-      setCategory(course.category || '');
-      setInstructorName(course.instructor_name || '');
-      setDurationHours(course.duration_hours || '');
-      setDifficulty(course.difficulty || '');
-      setThumbnailPreview(course.cover_image_url || '');
+      setTitle(course.title || "");
+      setShortDescription(course.short_description || "");
+      setDescription(course.description || "");
+      setCategory(course.category || "");
+      setInstructorName(course.instructor_name || "");
+      setDurationHours(course.duration_hours || "");
+      setDifficulty(course.difficulty || "");
+      setThumbnailPreview(course.cover_image_url || "");
       setContent(courseContent || []);
     } catch (err) {
       setError(err.message);
@@ -79,12 +84,12 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
 
   async function handleSaveCourse() {
     if (!title.trim()) {
-      setError('Course title is required');
+      setError("Course title is required");
       return;
     }
 
     setBusy(true);
-    setError('');
+    setError("");
 
     try {
       const payload = {
@@ -98,22 +103,29 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
       };
 
       let savedCourse;
-      if (mode === 'create') {
-        savedCourse = await api.post('/admin/courses', payload);
-        if (!savedCourse?.id) throw new Error('Course was created without an ID');
+      if (mode === "create") {
+        savedCourse = await api.post("/admin/courses", payload);
+        if (!savedCourse?.id)
+          throw new Error("Course was created without an ID");
         setActiveCourseId(savedCourse.id);
       } else {
-        savedCourse = await api.patch(`/admin/courses/${activeCourseId}`, payload);
+        savedCourse = await api.patch(
+          `/admin/courses/${activeCourseId}`,
+          payload,
+        );
       }
 
       // Upload thumbnail if provided
       if (thumbnailFile && savedCourse.id) {
         const formData = new FormData();
-        formData.append('file', thumbnailFile);
-        await api.upload(`/admin/courses/${savedCourse.id}/thumbnail`, formData);
+        formData.append("file", thumbnailFile);
+        await api.upload(
+          `/admin/courses/${savedCourse.id}/thumbnail`,
+          formData,
+        );
       }
 
-      if (mode === 'create') {
+      if (mode === "create") {
         // Move to content step for newly created course
         setStep(2);
         // Reload to get the course with ID
@@ -140,12 +152,15 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
 
   async function handleMoveContent(index, direction) {
     const newContent = [...content];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
 
     if (targetIndex < 0 || targetIndex >= newContent.length) return;
 
     // Swap items
-    [newContent[index], newContent[targetIndex]] = [newContent[targetIndex], newContent[index]];
+    [newContent[index], newContent[targetIndex]] = [
+      newContent[targetIndex],
+      newContent[index],
+    ];
 
     // Update display_order
     for (let i = 0; i < newContent.length; i++) {
@@ -156,12 +171,18 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
 
     // Save to server
     try {
-      await api.patch(`/admin/courses/${activeCourseId}/content/${newContent[index].id}`, {
-        display_order: newContent[index].display_order,
-      });
-      await api.patch(`/admin/courses/${activeCourseId}/content/${newContent[targetIndex].id}`, {
-        display_order: newContent[targetIndex].display_order,
-      });
+      await api.patch(
+        `/admin/courses/${activeCourseId}/content/${newContent[index].id}`,
+        {
+          display_order: newContent[index].display_order,
+        },
+      );
+      await api.patch(
+        `/admin/courses/${activeCourseId}/content/${newContent[targetIndex].id}`,
+        {
+          display_order: newContent[targetIndex].display_order,
+        },
+      );
     } catch (err) {
       setError(err.message);
     }
@@ -171,7 +192,9 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
     if (!deleteContent) return;
     setBusy(true);
     try {
-      await api.del(`/admin/courses/${activeCourseId}/content/${deleteContent.id}`);
+      await api.del(
+        `/admin/courses/${activeCourseId}/content/${deleteContent.id}`,
+      );
       setContent(content.filter((c) => c.id !== deleteContent.id));
       setDeleteContent(null);
     } catch (err) {
@@ -181,7 +204,8 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
     }
   }
 
-  const canGoToContent = mode === 'edit' || (mode === 'create' && activeCourseId);
+  const canGoToContent =
+    mode === "edit" || (mode === "create" && activeCourseId);
 
   return (
     <div
@@ -195,7 +219,7 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-ink-800 px-6 py-4">
           <h2 className="text-lg font-semibold text-white">
-            {mode === 'create' ? 'Create New Course' : 'Edit Course'}
+            {mode === "create" ? "Create New Course" : "Edit Course"}
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={20} />
@@ -208,8 +232,8 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
             <button
               className={`flex-1 px-6 py-3 text-sm font-medium transition ${
                 step === 1
-                  ? 'border-b-2 border-accent-soft text-white'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? "border-b-2 border-accent-soft text-white"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
               onClick={() => setStep(1)}
             >
@@ -218,8 +242,8 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
             <button
               className={`flex-1 px-6 py-3 text-sm font-medium transition ${
                 step === 2
-                  ? 'border-b-2 border-accent-soft text-white'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? "border-b-2 border-accent-soft text-white"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
               onClick={() => setStep(2)}
             >
@@ -230,7 +254,11 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
 
         {/* Body */}
         <div className="p-6">
-          {error ? <div className="mb-4 rounded-lg bg-bad/10 p-3 text-sm text-bad">{error}</div> : null}
+          {error ? (
+            <div className="mb-4 rounded-lg bg-bad/10 p-3 text-sm text-bad">
+              {error}
+            </div>
+          ) : null}
 
           {step === 1 ? (
             <div className="space-y-4">
@@ -333,7 +361,7 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
                   ) : null}
                   <label className="btn-secondary cursor-pointer">
                     <Upload size={16} />
-                    {thumbnailPreview ? 'Change Image' : 'Upload Image'}
+                    {thumbnailPreview ? "Change Image" : "Upload Image"}
                     <input
                       type="file"
                       accept="image/*"
@@ -358,19 +386,23 @@ export default function CourseEditorModal({ mode = 'create', courseId, onClose, 
         {/* Footer */}
         <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-line bg-ink-800 px-6 py-4">
           <button className="btn-ghost" onClick={onClose} disabled={busy}>
-            {step === 2 ? 'Close' : 'Cancel'}
+            {step === 2 ? "Close" : "Cancel"}
           </button>
           {step === 1 ? (
-            <button className="btn-primary" onClick={handleSaveCourse} disabled={busy}>
+            <button
+              className="btn-primary"
+              onClick={handleSaveCourse}
+              disabled={busy}
+            >
               {busy ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
                   Saving...
                 </>
-              ) : mode === 'create' ? (
-                'Create & Add Content'
+              ) : mode === "create" ? (
+                "Create & Add Content"
               ) : (
-                'Save Changes'
+                "Save Changes"
               )}
             </button>
           ) : null}
@@ -408,8 +440,12 @@ function ContentManager({ courseId, content, setContent, onMove, onDelete }) {
   if (content.length === 0 && !showAdd) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-ink-900/50 py-14">
-        <p className="text-sm font-medium text-slate-300">No content items yet</p>
-        <p className="mt-1 text-xs text-slate-500">Add videos, PDFs, images, or text lessons</p>
+        <p className="text-sm font-medium text-slate-300">
+          No content items yet
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Add videos, PDFs, images, or text lessons
+        </p>
         <button className="btn-primary mt-4" onClick={() => setShowAdd(true)}>
           <Plus size={16} />
           Add Content
@@ -421,7 +457,9 @@ function ContentManager({ courseId, content, setContent, onMove, onDelete }) {
   return (
     <div className="space-y-4">
       {content.map((item, index) => {
-        const TypeIcon = CONTENT_TYPES.find((t) => t.value === item.content_type)?.icon || FileText;
+        const TypeIcon =
+          CONTENT_TYPES.find((t) => t.value === item.content_type)?.icon ||
+          FileText;
         return (
           <Card key={item.id} className="p-4">
             <div className="flex items-start gap-3">
@@ -431,12 +469,18 @@ function ContentManager({ courseId, content, setContent, onMove, onDelete }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-medium text-white">{item.title}</h4>
+                    <h4 className="text-sm font-medium text-white">
+                      {item.title}
+                    </h4>
                     {item.description ? (
-                      <p className="mt-1 text-xs text-slate-500">{item.description}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.description}
+                      </p>
                     ) : null}
                   </div>
-                  <Badge className="bg-slate-500/15 text-slate-400">{item.content_type}</Badge>
+                  <Badge className="bg-slate-500/15 text-slate-400">
+                    {item.content_type}
+                  </Badge>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -448,18 +492,27 @@ function ContentManager({ courseId, content, setContent, onMove, onDelete }) {
                     Edit
                   </button>
                   {index > 0 ? (
-                    <button className="btn-ghost text-xs" onClick={() => onMove(index, 'up')}>
+                    <button
+                      className="btn-ghost text-xs"
+                      onClick={() => onMove(index, "up")}
+                    >
                       <ChevronUp size={12} />
                       Up
                     </button>
                   ) : null}
                   {index < content.length - 1 ? (
-                    <button className="btn-ghost text-xs" onClick={() => onMove(index, 'down')}>
+                    <button
+                      className="btn-ghost text-xs"
+                      onClick={() => onMove(index, "down")}
+                    >
                       <ChevronDown size={12} />
                       Down
                     </button>
                   ) : null}
-                  <button className="btn-ghost text-xs text-bad" onClick={() => onDelete(item)}>
+                  <button
+                    className="btn-ghost text-xs text-bad"
+                    onClick={() => onDelete(item)}
+                  >
                     <Trash2 size={12} />
                     Delete
                   </button>
@@ -497,50 +550,69 @@ function ContentManager({ courseId, content, setContent, onMove, onDelete }) {
 }
 
 // Content Item Modal
-function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess }) {
-  const [contentType, setContentType] = useState(item?.content_type || 'video');
-  const [title, setTitle] = useState(item?.title || '');
-  const [description, setDescription] = useState(item?.description || '');
-  const [videoUrl, setVideoUrl] = useState(item?.video_url || '');
-  const [externalUrl, setExternalUrl] = useState(item?.external_url || '');
-  const [textContent, setTextContent] = useState(item?.text_content || '');
-  const [durationMinutes, setDurationMinutes] = useState(item?.duration_minutes || '');
+function ContentItemModal({
+  courseId,
+  mode = "create",
+  item,
+  onClose,
+  onSuccess,
+}) {
+  const [contentType, setContentType] = useState(item?.content_type || "video");
+  const [title, setTitle] = useState(item?.title || "");
+  const [description, setDescription] = useState(item?.description || "");
+  const [videoUrl, setVideoUrl] = useState(item?.video_url || "");
+  const [externalUrl, setExternalUrl] = useState(item?.external_url || "");
+  const [textContent, setTextContent] = useState(item?.text_content || "");
+  const [durationMinutes, setDurationMinutes] = useState(
+    item?.duration_minutes || "",
+  );
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   async function handleSubmit() {
     if (!title.trim()) {
-      setError('Title is required');
+      setError("Title is required");
       return;
     }
 
     setBusy(true);
-    setError('');
+    setError("");
 
     try {
       const formData = new FormData();
-      formData.append('content_type', contentType);
-      formData.append('title', title.trim());
-      if (description) formData.append('description', description.trim());
-      if (videoUrl && contentType === 'video') formData.append('video_url', videoUrl);
-      if (externalUrl && contentType === 'link') formData.append('external_url', externalUrl);
-      if (textContent && contentType === 'text') formData.append('text_content', textContent);
-      if (durationMinutes) formData.append('duration_minutes', durationMinutes);
-      if (file) formData.append('file', file);
+      formData.append("content_type", contentType);
+      formData.append("title", title.trim());
+      if (description) formData.append("description", description.trim());
+      if (videoUrl && contentType === "video")
+        formData.append("video_url", videoUrl);
+      if (externalUrl && contentType === "link")
+        formData.append("external_url", externalUrl);
+      if (textContent && contentType === "text")
+        formData.append("text_content", textContent);
+      if (durationMinutes) formData.append("duration_minutes", durationMinutes);
+      if (file) formData.append("file", file);
 
       let result;
-      if (mode === 'create') {
-        result = await api.upload(`/admin/courses/${courseId}/content`, formData);
+      if (mode === "create") {
+        result = await api.upload(
+          `/admin/courses/${courseId}/content`,
+          formData,
+        );
       } else {
-        result = await api.patch(`/admin/courses/${courseId}/content/${item.id}`, {
-          title: title.trim(),
-          description: description.trim() || null,
-          video_url: videoUrl || null,
-          external_url: externalUrl || null,
-          text_content: textContent || null,
-          duration_minutes: durationMinutes ? parseInt(durationMinutes) : null,
-        });
+        result = await api.patch(
+          `/admin/courses/${courseId}/content/${item.id}`,
+          {
+            title: title.trim(),
+            description: description.trim() || null,
+            video_url: videoUrl || null,
+            external_url: externalUrl || null,
+            text_content: textContent || null,
+            duration_minutes: durationMinutes
+              ? parseInt(durationMinutes)
+              : null,
+          },
+        );
       }
 
       onSuccess(result);
@@ -552,14 +624,17 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-lg rounded-xl border border-line bg-ink-800 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-6 py-4">
           <h3 className="text-base font-semibold text-white">
-            {mode === 'create' ? 'Add Content Item' : 'Edit Content Item'}
+            {mode === "create" ? "Add Content Item" : "Edit Content Item"}
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={18} />
@@ -567,12 +642,20 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
         </div>
 
         <div className="space-y-4 p-6">
-          {error ? <div className="rounded-lg bg-bad/10 p-3 text-sm text-bad">{error}</div> : null}
+          {error ? (
+            <div className="rounded-lg bg-bad/10 p-3 text-sm text-bad">
+              {error}
+            </div>
+          ) : null}
 
-          {mode === 'create' ? (
+          {mode === "create" ? (
             <div>
               <label className="label">Content Type *</label>
-              <select className="input" value={contentType} onChange={(e) => setContentType(e.target.value)}>
+              <select
+                className="input"
+                value={contentType}
+                onChange={(e) => setContentType(e.target.value)}
+              >
                 {CONTENT_TYPES.map((type) => (
                   <option key={type.value} value={type.value}>
                     {type.label}
@@ -603,10 +686,12 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
             />
           </div>
 
-          {contentType === 'video' && mode === 'create' ? (
+          {contentType === "video" && mode === "create" ? (
             <>
               <div>
-                <label className="label">Video URL (YouTube, Vimeo, etc.)</label>
+                <label className="label">
+                  Video URL (YouTube, Vimeo, etc.)
+                </label>
                 <input
                   type="url"
                   className="input"
@@ -630,7 +715,7 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
             </>
           ) : null}
 
-          {contentType === 'image' && mode === 'create' ? (
+          {contentType === "image" && mode === "create" ? (
             <div>
               <label className="label">Upload Image *</label>
               <input
@@ -642,7 +727,7 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
             </div>
           ) : null}
 
-          {contentType === 'pdf' && mode === 'create' ? (
+          {contentType === "pdf" && mode === "create" ? (
             <div>
               <label className="label">Upload PDF *</label>
               <input
@@ -654,7 +739,7 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
             </div>
           ) : null}
 
-          {contentType === 'text' ? (
+          {contentType === "text" ? (
             <div>
               <label className="label">Text Content</label>
               <textarea
@@ -666,7 +751,7 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
             </div>
           ) : null}
 
-          {contentType === 'link' ? (
+          {contentType === "link" ? (
             <div>
               <label className="label">External URL *</label>
               <input
@@ -695,16 +780,20 @@ function ContentItemModal({ courseId, mode = 'create', item, onClose, onSuccess 
           <button className="btn-ghost" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="btn-primary" onClick={handleSubmit} disabled={busy}>
+          <button
+            className="btn-primary"
+            onClick={handleSubmit}
+            disabled={busy}
+          >
             {busy ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
                 Saving...
               </>
-            ) : mode === 'create' ? (
-              'Add Content'
+            ) : mode === "create" ? (
+              "Add Content"
             ) : (
-              'Save Changes'
+              "Save Changes"
             )}
           </button>
         </div>
